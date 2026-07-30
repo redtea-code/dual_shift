@@ -150,13 +150,18 @@ apis_v2_shuffle      # 负对照（可先最小子集）
 
 **变体（E1 最小可判决集）**
 
-第一波（必须）：`ce_only`, `mixstyle`, `metadata`, `apis_v2`  
+第一波（必须）：`ce_only`, `mixstyle`, `metadata`, `apis_v2`
 
-其中 `metadata` 与 `apis_v2` **共享**影像 backbone + 人口学融合（age/sex/education）；  
-唯一主差异为协议路径：`metadata` = 采集描述子直接拼接；`apis_v2` = 早期残差协议干预。  
-两者均不启用 CDT。`ce_only` 无人口学融合、无协议条件。  
+| 配置 | 影像 \(X\) | 人口学 \(D\) | 采集参数 \(A\) | 融合/干预方式 |
+|---|---:|---:|---:|---|
+| `ce_only` | 是 | 否 | 否 | 纯 3D CNN，GAP 后线性分类 |
+| `mixstyle` | 是 | 是 | 否 | layer1/2 MixStyle；人口学低秩融合 |
+| `metadata` | 是 | 否 | 是 | 影像 GAP 与采集参数 embedding 直接拼接 |
+| `apis_v2` | 是 | 是 | 仅训练期 | 协议控制 layer1/2 有界残差；人口学低秩融合 |
+
 第二波（claim 完整性）：`film`, `legacy_apis`, `uncond_residual`  
-第三波（机制最小）：`apis_v2_shuffle`（可先单方向单 seed 再扩）
+第三波（机制最小）：`apis_v2_shuffle`（可先单方向单 seed 再扩）  
+另：`cdt_only` / `dual_shift` 为 CDT 轴，不替代上述主对照。
 
 **种子**：`42,43,44,45,46`  
 **聚合**：subject_mean；bootstrap 按 subject  
@@ -283,7 +288,7 @@ C:\Anaconda3\envs\pytorch\python.exe experiments\report_apis_v2_claim_e1.py ^
 - [x] `journal_dual_shift_apis_v2_claim.yaml` 已冻结并归档  
 - [x] C1 hold-out 排除进划分 + 断言  
 - [x] C2 balanced_accuracy 进正式 metrics  
-- [x] C3 metadata 基线可跑（`Model/dual_shift/metadata_baseline.py`，不依赖 Model.comparison）  
+- [x] C3 metadata 基线可跑（`X+A`，无人口学；GAP∥acquisition embedding）  
 - [x] C5 变体命名区分：`apis_only`→`apis_v2`（residual）；`legacy_apis`（AdaIN）未在本分支接线  
 - [x] C8 反向 1.5T/3T 分层（`metrics_by_field_strength` + 预测 CSV `field_strength`）  
 - [x] C9 汇总与配对 bootstrap 脚本（`experiments/report_apis_v2_claim_e1.py`）  

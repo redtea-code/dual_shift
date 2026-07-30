@@ -3,11 +3,12 @@
 # Hold-out: paired <=30d subjects excluded from source train/val/test splits.
 # Do not use smoke/ outputs or 6-epoch budgets for claim decisions.
 #
-# Fairness (metadata vs apis_v2):
-#   both use image backbone + demographic fusion (age/sex/education);
-#   metadata concatenates acquisition descriptors at the head;
-#   apis_v2 applies residual protocol intervention in early CNN layers.
-#   Neither claim wave-1 variant enables CDT.
+# Wave-1 input axes (X=image, D=demographics, A=acquisition):
+#   ce_only   : X
+#   mixstyle  : X + D  (MixStyle; demographic low-rank fusion)
+#   metadata  : X + A  (GAP concat acquisition embedding; no D)
+#   apis_v2   : X + D  (APIS residual on A at train-time only; demographic fusion)
+# Neither apis_v2 nor metadata enables CDT in wave-1.
 
 preprocessing_version: skullstrip+n4+mni+crop+normalize
 conference_reference_commit: d1a37d92ba6e646b3ac710cfff44fb737daafaac

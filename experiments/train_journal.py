@@ -85,7 +85,7 @@ VARIANT_STAGES = {
     "film": "baselines",
     "daft": "baselines",
     "hyperfusion": "baselines",
-    # Claim fair baseline: demographic fusion + direct acquisition concat.
+    # Claim baseline: image + acquisition concat (no demographics).
     "metadata": "baselines",
     # Original Wave0 methods re-run under journal protocol (same split/cov3).
     "gamma": "gamma_concat",
@@ -111,7 +111,7 @@ VARIANT_DISPLAY = {
     "film": "film",
     "daft": "daft",
     "hyperfusion": "hyperfusion",
-    "metadata": "metadata_demo_acq",
+    "metadata": "metadata_acq_concat",
     "gamma": "gamma",
     "concat": "concat",
     "dual_dict_linear": "dual_dict_linear",
@@ -518,7 +518,6 @@ def _make_model(config, num_classes, variant):
             num_classes=num_classes,
             base_channels=int(model_config.get("base_channels", 32)),
             acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
-            fusion_rank=int(ds.get("fusion_rank", 16)),
             dropout=float(model_config.get("dropout", 0.1)),
         )
     if variant == "concat":
@@ -613,14 +612,7 @@ def _run_epoch(
             elif variant in METADATA_VARIANTS:
                 if not isinstance(acquisitions, list):
                     raise RuntimeError("metadata variant requires acquisition rows")
-                logits = model(
-                    batch["image"],
-                    batch["covariates"],
-                    acquisitions,
-                    age_missing=batch.get("age_missing"),
-                    sex_missing=batch.get("sex_missing"),
-                    education_missing=batch.get("education_missing"),
-                )
+                logits = model(batch["image"], acquisitions)
             else:
                 logits = _logits(model, batch, spatial, variant=variant)
             if dro is None:
