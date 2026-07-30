@@ -1,0 +1,76 @@
+{
+  "max_days": 90,
+  "direction": "adni_to_nacc",
+  "variants": {
+    "ce_only": {
+      "variant": "ce_only",
+      "checkpoint": "D:\\cyh\\dictionary_learn\\outputs\\journal\\dual_shift_postfix\\adni_to_nacc\\ce_only\\best_checkpoint.pt",
+      "max_days": 90,
+      "n_pairs_available": 34,
+      "n_pairs_evaluated": 21,
+      "mean_abs_prob_gap": 0.008001865971978293,
+      "median_abs_prob_gap": 6.091036993893795e-05,
+      "q25_abs_prob_gap": 1.8358286979491822e-05,
+      "q75_abs_prob_gap": 0.00035723327891901135,
+      "mean_abs_prob_gap_ci95": [
+        0.00018247776013032265,
+        0.022652387680143098
+      ],
+      "mean_signed_logit_diff_1p5_minus_3t": 0.4279750230766478,
+      "pred_agreement": 1.0,
+      "class_flip_rate": 0.0,
+      "prob_pearson": 0.99785814826309,
+      "prob_spearman": 0.9428571428571428,
+      "mean_embedding_cosine": 0.9984382731573922,
+      "mean_prob_l1_half": 0.008001865971978293
+    },
+    "mixstyle": {
+      "variant": "mixstyle",
+      "checkpoint": "D:\\cyh\\dictionary_learn\\outputs\\journal\\dual_shift_postfix\\adni_to_nacc\\mixstyle\\best_checkpoint.pt",
+      "max_days": 90,
+      "n_pairs_available": 34,
+      "n_pairs_evaluated": 21,
+      "mean_abs_prob_gap": 0.015874897243044132,
+      "median_abs_prob_gap": 0.00026770037948153913,
+      "q25_abs_prob_gap": 0.00010069640120491385,
+      "q75_abs_prob_gap": 0.0005082308780401945,
+      "mean_abs_prob_gap_ci95": [
+        0.0004475252780615674,
+        0.04601337191525956
+      ],
+      "mean_signed_logit_diff_1p5_minus_3t": 0.3225927409671602,
+      "pred_agreement": 1.0,
+      "class_flip_rate": 0.0,
+      "prob_pearson": 0.990541496036431,
+      "prob_spearman": 0.922077922077922,
+      "mean_embedding_cosine": 0.9954065595354352,
+      "mean_prob_l1_half": 0.015874897243044132
+    },
+    "apis_only": {
+      "variant": "apis_only",
+      "checkpoint": "D:\\cyh\\dictionary_learn\\outputs\\journal\\dual_shift_postfix\\adni_to_nacc\\apis_only\\best_checkpoint.pt",
+      "max_days": 90,
+      "n_pairs_available": 34,
+      "n_pairs_evaluated": 21,
+      "mean_abs_prob_gap": 0.006189249672236959,
+      "median_abs_prob_gap": 5.49389369552955e-05,
+      "q25_abs_prob_gap": 7.990596714080311e-06,
+      "q75_abs_prob_gap": 0.0005394287873059511,
+      "mean_abs_prob_gap_ci95": [
+        0.00018218812243622735,
+        0.01700870898849546
+      ],
+      "mean_signed_logit_diff_1p5_minus_3t": 0.7994459129515148,
+      "pred_agreement": 1.0,
+      "class_flip_rate": 0.0,
+      "prob_pearson": 0.9988487824063238,
+      "prob_spearman": 0.916883116883117,
+      "mean_embedding_cosine": 0.9957645649001712,
+      "mean_prob_l1_half": 0.006189249672236959
+    }
+  },
+  "deltas": {
+    "apis_minus_ce_mean_abs_prob_gap": -0.0018126162997413346,
+    "apis_minus_mixstyle_mean_abs_prob_gap": -0.009685647570807174
+  }
+}
