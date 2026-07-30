@@ -1,0 +1,168 @@
+{
+  "apis_only_minus_ce_only": {
+    "accuracy": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.0077821011673152585,
+      "lower": -0.0195525291828794,
+      "metric": "accuracy",
+      "n_valid": 200,
+      "upper": 0.0311284046692607
+    },
+    "auc": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.03069848371861794,
+      "lower": 0.00661367391408438,
+      "metric": "auc",
+      "n_valid": 200,
+      "upper": 0.05155087735132415
+    },
+    "brier": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": -0.012382387306484485,
+      "lower": -0.025369743464280503,
+      "metric": "brier",
+      "n_valid": 200,
+      "upper": 0.005182764925408215
+    },
+    "ece": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": -0.03277500564006757,
+      "lower": -0.05788977813414521,
+      "metric": "ece",
+      "n_valid": 200,
+      "upper": 0.01587965934476125
+    },
+    "group_gap": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.042857142857142705,
+      "lower": -0.07943616123000864,
+      "metric": "group_gap",
+      "n_valid": 200,
+      "upper": 0.1715226648351648
+    },
+    "macro_f1": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.008301121270402279,
+      "lower": -0.019579331522259685,
+      "metric": "macro_f1",
+      "n_valid": 200,
+      "upper": 0.03174020575332039
+    },
+    "sensitivity": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": -0.020134228187919434,
+      "lower": -0.05758569614896326,
+      "metric": "sensitivity",
+      "n_valid": 200,
+      "upper": 0.01360777187587365
+    },
+    "specificity": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.04629629629629628,
+      "lower": 0.0078000000000000395,
+      "metric": "specificity",
+      "n_valid": 200,
+      "upper": 0.08412798986218914
+    },
+    "worst_group_auc": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": -0.042857142857142705,
+      "lower": -0.17152266483516476,
+      "metric": "worst_group_auc",
+      "n_valid": 200,
+      "upper": 0.07943616123000871
+    }
+  },
+  "mixstyle_minus_ce_only": {
+    "accuracy": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": -0.0778210116731517,
+      "lower": -0.12840466926070038,
+      "metric": "accuracy",
+      "n_valid": 200,
+      "upper": -0.027237354085603127
+    },
+    "auc": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.006959980114342401,
+      "lower": -0.015285551420453918,
+      "metric": "auc",
+      "n_valid": 200,
+      "upper": 0.026550352303273475
+    },
+    "brier": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.04552514559922341,
+      "lower": 0.024806646814224804,
+      "metric": "brier",
+      "n_valid": 200,
+      "upper": 0.07379017474367452
+    },
+    "ece": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.06606207645745177,
+      "lower": 0.0233751531516308,
+      "metric": "ece",
+      "n_valid": 200,
+      "upper": 0.10982785398782481
+    },
+    "group_gap": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": -0.0071428571428572285,
+      "lower": -0.0673398640832852,
+      "metric": "group_gap",
+      "n_valid": 200,
+      "upper": 0.039065965003465125
+    },
+    "macro_f1": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": -0.07812381256364653,
+      "lower": -0.12604715359967614,
+      "metric": "macro_f1",
+      "n_valid": 200,
+      "upper": -0.02748491805950835
+    },
+    "sensitivity": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": -0.17449664429530198,
+      "lower": -0.24670689655172418,
+      "metric": "sensitivity",
+      "n_valid": 200,
+      "upper": -0.10265350238025837
+    },
+    "specificity": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.05555555555555547,
+      "lower": 0.0,
+      "metric": "specificity",
+      "n_valid": 200,
+      "upper": 0.09708737864077666
+    },
+    "worst_group_auc": {
+      "aggregation": "subject_mean",
+      "bootstrap": "subject_row",
+      "estimate": 0.0071428571428572285,
+      "lower": -0.03906596500346504,
+      "metric": "worst_group_auc",
+      "n_valid": 200,
+      "upper": 0.06733986408328521
+    }
+  }
+}
