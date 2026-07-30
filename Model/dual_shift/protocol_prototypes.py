@@ -342,42 +342,60 @@ class ProtocolPrototypeBank:
         *,
         device: torch.device,
         generator: Optional[torch.Generator] = None,
+        embedding_dim: Optional[int] = None,
     ) -> Tuple[Optional[torch.Tensor], torch.Tensor]:
         """Sample an observed source protocol for residual intervention.
 
         Unlike the legacy statistic transport path, this returns only the
         protocol descriptor. No target feature mean or standard deviation is
         injected into the CNN.
+
+        Samples without an eligible observed target keep ``selected=-1`` and a
+        zero placeholder embedding. Callers must apply a per-sample validity
+        mask rather than discarding the whole batch.
         """
         eligible = self.eligible_keys()
         batch = len(domain_keys)
+        selected = torch.full((batch,), -1, device=device, dtype=torch.long)
         if not eligible:
-            return None, torch.full((batch,), -1, device=device, dtype=torch.long)
+            self.last_selection_audit = [
+                {
+                    "source_key": key,
+                    "chosen": None,
+                    "reason": "no_eligible_prototypes",
+                    "n_candidates": 0,
+                    "intervention": "none",
+                }
+                for key in domain_keys
+            ]
+            return None, selected
+
+        if embedding_dim is None:
+            embedding_dim = int(next(iter(self.prototypes.values()))["embedding"].numel())
 
         embeddings = []
-        selected = []
         audit = []
-        for key in domain_keys:
+        for sample_index, key in enumerate(domain_keys):
             candidates = self._filter_candidates(key, eligible)
             if not candidates:
-                self.last_selection_audit = [
+                embeddings.append(torch.zeros(embedding_dim, device=device))
+                audit.append(
                     {
                         "source_key": key,
                         "chosen": None,
                         "reason": "no_valid_observed_protocol",
                         "n_candidates": 0,
+                        "intervention": "none",
                     }
-                ]
-                return None, torch.full(
-                    (batch,), -1, device=device, dtype=torch.long
                 )
-            index = int(
+                continue
+            choice = int(
                 torch.randint(0, len(candidates), (1,), generator=generator).item()
             )
-            chosen = candidates[index]
+            chosen = candidates[choice]
             proto = self.prototypes[chosen]
-            embeddings.append(proto["embedding"].to(device))
-            selected.append(eligible.index(chosen))
+            embeddings.append(proto["embedding"].to(device).reshape(-1))
+            selected[sample_index] = eligible.index(chosen)
             audit.append(
                 {
                     "source_key": key,
@@ -390,10 +408,9 @@ class ProtocolPrototypeBank:
                 }
             )
         self.last_selection_audit = audit
-        return (
-            torch.stack(embeddings, dim=0),
-            torch.tensor(selected, device=device, dtype=torch.long),
-        )
+        if not bool((selected >= 0).any().item()):
+            return None, selected
+        return torch.stack(embeddings, dim=0), selected
 
     def state_dict(self) -> Dict[str, Any]:
         payload = {

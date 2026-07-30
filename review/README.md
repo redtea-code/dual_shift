@@ -25,6 +25,8 @@
 | [`02_dual_shift_experiment_schedule_2026-07-29.md`](plans/02_dual_shift_experiment_schedule_2026-07-29.md) | postfix 后续实验执行安排 |
 | [`09_apis_3seed_samehost_repro_plan_2026-07-30.md`](plans/09_apis_3seed_samehost_repro_plan_2026-07-30.md) | APIS 同机三种子复现预注册计划 |
 | [`10_apis_v2_claim_validation_plan_2026-07-30.md`](plans/10_apis_v2_claim_validation_plan_2026-07-30.md) | APIS v2 主张边界与验证实验方案 |
+| [`11_apis_v2_local_experiment_schedule_2026-07-30.md`](plans/11_apis_v2_local_experiment_schedule_2026-07-30.md) | APIS v2 本地 smoke 安排 |
+| [`14_apis_v2_claim_execution_plan_2026-07-31.md`](plans/14_apis_v2_claim_execution_plan_2026-07-31.md) | APIS v2 主张验证执行计划 |
 
 ### Records
 
@@ -33,6 +35,8 @@
 | [`03_dual_shift_apis_3seed_status_2026-07-29.md`](records/03_dual_shift_apis_3seed_status_2026-07-29.md) | APIS 队列执行状态 |
 | [`05_dual_shift_remote_claim_2026-07-29.md`](records/05_dual_shift_remote_claim_2026-07-29.md) | 远程任务认领与启动记录 |
 | [`06_dual_shift_apis_3seed_remote_results_2026-07-30.md`](records/06_dual_shift_apis_3seed_remote_results_2026-07-30.md) | Linux 结果上传登记 |
+| [`12_apis_v2_smoke_adni_to_nacc_2026-07-30.md`](records/12_apis_v2_smoke_adni_to_nacc_2026-07-30.md) | APIS v2 ADNI→NACC smoke |
+| [`13_apis_v2_smoke_bidirectional_2026-07-30.md`](records/13_apis_v2_smoke_bidirectional_2026-07-30.md) | APIS v2 双向 smoke |
 
 ### Analysis
 

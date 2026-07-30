@@ -51,23 +51,24 @@ from Model.backbone.backdoor_backbone import resnet10_backdoor
 from Model.backbone.daft_backbone import resnet10_daft
 from Model.backbone.film_backbone import resnet10_film
 from Model.backbone.journal_resnet import journal_resnet10, journal_resnet18
-from Model.comparison.factories import make_concat_fusion, make_hyperfusion
 from Model.dual_shift import DualShiftResNet3D
+from Model.dual_shift.metadata_baseline import MetadataConcatBaseline
 from training.dual_shift_loop import (
     initialize_dual_shift_controllers,
     run_dual_shift_epoch,
 )
-from Model.dictionary.journal_dual_dict import (
-    make_journal_dual_dict,
-    resolve_dictionary_preset,
-)
-from Model.dictionary.losses import compute_core_losses
 from training.group_dro import GroupDRO
 from training.journal_metrics import (
     bootstrap_confidence_intervals,
     compute_journal_metrics,
+    compute_metrics_by_field_strength,
     paired_bootstrap_difference,
     save_json_summary,
+)
+from utils.claim_holdout import (
+    assert_no_holdout_leak,
+    filter_indices_excluding_subjects,
+    load_holdout_subjects,
 )
 from utils.journal_protocol import (
     DemographicEnvironmentBuilder,
@@ -84,6 +85,8 @@ VARIANT_STAGES = {
     "film": "baselines",
     "daft": "baselines",
     "hyperfusion": "baselines",
+    # Claim-plan name for direct tabular/metadata concatenation (same as concat).
+    "metadata": "baselines",
     # Original Wave0 methods re-run under journal protocol (same split/cov3).
     "gamma": "gamma_concat",
     "concat": "gamma_concat",
@@ -93,7 +96,9 @@ VARIANT_STAGES = {
     # Dual-shift journal mainline (CDT + APIS).
     "dual_shift": "dual_shift",
     "cdt_only": "dual_shift",
-    "apis_only": "dual_shift",
+    "apis_only": "dual_shift",  # legacy alias → residual APIS v2 behavior
+    "apis_v2": "dual_shift",
+    "apis_v2_shuffle": "dual_shift",
     "mixstyle": "dual_shift",
 }
 
@@ -106,24 +111,34 @@ VARIANT_DISPLAY = {
     "film": "film",
     "daft": "daft",
     "hyperfusion": "hyperfusion",
+    "metadata": "metadata_concat",
     "gamma": "gamma",
     "concat": "concat",
     "dual_dict_linear": "dual_dict_linear",
     "dual_dict_core": "dual_dict_core",
     "dual_shift": "dual_shift",
     "cdt_only": "cdt_only",
-    "apis_only": "apis_only",
+    "apis_only": "apis_v2",
+    "apis_v2": "apis_v2",
+    "apis_v2_shuffle": "apis_v2_shuffle",
     "mixstyle": "mixstyle",
 }
 
-EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
+EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat", "metadata"})
 PATCH_GAMMA_VARIANTS = frozenset({"gamma"})
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
-DUAL_SHIFT_VARIANTS = frozenset({"dual_shift", "cdt_only", "apis_only", "mixstyle"})
+DUAL_SHIFT_VARIANTS = frozenset(
+    {"dual_shift", "cdt_only", "apis_only", "apis_v2", "apis_v2_shuffle", "mixstyle"}
+)
 JOURNAL_SPATIAL_VARIANTS = frozenset({"spatial", "spatial_groupdro"})
 JOURNAL_BACKBONE_VARIANTS = frozenset(
     {"ce_only", "groupdro", "spatial", "spatial_groupdro"}
 )
+
+VARIANT_ALIASES = {
+    # Historical name retained; residual APIS v2 is the current implementation.
+    "apis_only": "apis_v2",
+}
 
 
 def _default_gamma_backdoor_kwargs() -> dict:
@@ -436,6 +451,8 @@ def _make_model(config, num_classes, variant):
     covariate_dim = 3
 
     if variant in DICTIONARY_VARIANTS:
+        from Model.dictionary.journal_dual_dict import make_journal_dual_dict
+
         backbone = _make_journal_backbone(config, num_classes)
         feature_dim = _backbone_feature_dim(backbone)
         return make_journal_dual_dict(
@@ -449,20 +466,23 @@ def _make_model(config, num_classes, variant):
     if variant in DUAL_SHIFT_VARIANTS:
         ds = config.get("dual_shift") or {}
         model_config = config["model"]
-        return DualShiftResNet3D(
+        use_apis = variant in {"dual_shift", "apis_only", "apis_v2", "apis_v2_shuffle"}
+        model = DualShiftResNet3D(
             num_classes=num_classes,
             base_channels=int(model_config.get("base_channels", 32)),
             dropout=float(model_config.get("dropout", 0.1)),
             alpha_max=float(ds.get("alpha_max", 0.25)),
             apis_basis_count=int(ds.get("apis_basis_count", 4)),
             apis_rank=int(ds.get("apis_rank", 8)),
-            use_apis=variant in {"dual_shift", "apis_only"},
+            use_apis=use_apis,
             use_cdt=variant in {"dual_shift", "cdt_only"},
             use_mixstyle=variant == "mixstyle",
             mixstyle_p=float(ds.get("mixstyle_p", 0.5)),
             mixstyle_alpha=float(ds.get("mixstyle_alpha", 0.1)),
             prototype_min_subjects=int(ds.get("prototype_min_subjects", 8)),
         )
+        model.shuffle_acquisition = bool(variant == "apis_v2_shuffle")
+        return model
 
     if variant == "film":
         return resnet10_film(
@@ -478,6 +498,8 @@ def _make_model(config, num_classes, variant):
             feature=False,
         )
     if variant == "hyperfusion":
+        from Model.comparison.factories import make_hyperfusion
+
         return make_hyperfusion(
             in_channels=1,
             num_tabular=covariate_dim,
@@ -487,18 +509,21 @@ def _make_model(config, num_classes, variant):
             dropout=float(baseline_cfg.get("hyper_dropout", model_config.get("dropout", 0.1))),
             base_channels=int(baseline_cfg.get("hyper_base_channels", 8)),
         )
-    if variant == "concat":
-        return make_concat_fusion(
-            in_channels=1,
-            num_tabular=covariate_dim,
+    if variant in {"concat", "metadata"}:
+        # Claim metadata baseline: self-contained concat (no Model.comparison).
+        return MetadataConcatBaseline(
             num_classes=num_classes,
-            img_feat_dim=int(baseline_cfg.get("concat_img_feat_dim", 128)),
-            tab_feat_dim=int(baseline_cfg.get("concat_tab_feat_dim", 128)),
+            tabular_dim=covariate_dim,
+            base_channels=int(
+                baseline_cfg.get(
+                    "concat_base_channels", model_config.get("base_channels", 32)
+                )
+            ),
+            tab_feat_dim=int(baseline_cfg.get("concat_tab_feat_dim", 64)),
             hidden_dim=int(baseline_cfg.get("concat_hidden_dim", 128)),
             dropout=float(
                 baseline_cfg.get("concat_dropout", model_config.get("dropout", 0.1))
             ),
-            base_channels=int(baseline_cfg.get("concat_base_channels", 8)),
         )
     if variant == "gamma":
         backdoor_kwargs = dict(baseline_cfg.get("gamma_backdoor_kwargs") or {})
@@ -551,6 +576,7 @@ def _run_epoch(
     total_loss = 0.0
     count = 0
     logits_all, labels_all, env_all, subjects, folders = [], [], [], [], []
+    field_strengths = []
     weight_tensor = (
         None
         if class_weights is None
@@ -562,6 +588,7 @@ def _run_epoch(
             for key, value in raw_batch.items()
             if key != "acquisition"
         }
+        acquisitions = raw_batch.get("acquisition")
         with torch.set_grad_enabled(training):
             if variant in DUAL_SHIFT_VARIANTS:
                 raise RuntimeError(
@@ -595,6 +622,9 @@ def _run_epoch(
             train_loss = objective
             if variant in DICTIONARY_VARIANTS and training:
                 # Supervised dual-dict core loss on frozen CE GAP features.
+                from Model.dictionary.journal_dual_dict import resolve_dictionary_preset
+                from Model.dictionary.losses import compute_core_losses
+
                 preset_cfg = resolve_dictionary_preset(
                     config.get("dictionary") or {}, variant
                 )
@@ -662,6 +692,14 @@ def _run_epoch(
         env_all.append(batch["environment_id"].detach().cpu())
         subjects.extend(raw_batch["subject_id"])
         folders.extend(raw_batch["folder"])
+        if isinstance(acquisitions, list):
+            for record in acquisitions:
+                try:
+                    field_strengths.append(float((record or {}).get("field_strength")))
+                except (TypeError, ValueError):
+                    field_strengths.append(float("nan"))
+        else:
+            field_strengths.extend([float("nan")] * batch_size)
     logits_np = torch.cat(logits_all).numpy()
     labels_np = torch.cat(labels_all).numpy()
     env_np = torch.cat(env_all).numpy()
@@ -680,14 +718,23 @@ def _run_epoch(
         "environments": env_np,
         "subjects": subjects,
         "folders": folders,
+        "field_strengths": field_strengths,
         "metrics": metrics,
     }
 
 
 def _save_predictions(path, result):
     probabilities = torch.softmax(torch.from_numpy(result["logits"]), dim=1).numpy()
-    fields = ["subject_id", "folder", "label", "predicted_label", "environment_id"]
+    fields = [
+        "subject_id",
+        "folder",
+        "label",
+        "predicted_label",
+        "environment_id",
+        "field_strength",
+    ]
     fields += [f"probability_{i}" for i in range(probabilities.shape[1])]
+    strengths = result.get("field_strengths") or [float("nan")] * len(probabilities)
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -698,6 +745,7 @@ def _save_predictions(path, result):
                 "label": int(result["labels"][index]),
                 "predicted_label": int(probability.argmax()),
                 "environment_id": int(result["environments"][index]),
+                "field_strength": strengths[index],
             }
             row.update(
                 {f"probability_{i}": float(value) for i, value in enumerate(probability)}
@@ -879,7 +927,12 @@ def _train_variant(
     dictionary = variant in DICTIONARY_VARIANTS
     dual_shift = variant in DUAL_SHIFT_VARIANTS
     model = _make_model(config, num_classes, variant).to(device)
-    dict_cfg = resolve_dictionary_preset(config.get("dictionary") or {}, variant) if dictionary else {}
+    if dictionary:
+        from Model.dictionary.journal_dual_dict import resolve_dictionary_preset
+
+        dict_cfg = resolve_dictionary_preset(config.get("dictionary") or {}, variant)
+    else:
+        dict_cfg = {}
     if dual_shift:
         initialize_dual_shift_controllers(model, train_loader.dataset, config)
         parameters = model.parameters()
@@ -979,12 +1032,17 @@ def _train_variant(
                 "val_loss": val_result["loss"],
                 "val_auc": key[-1] if isinstance(key[-1], (int, float)) else None,
                 "phase": train_result.get("phase"),
+                "apis_coefficient_l2": train_result.get("apis_coefficient_l2"),
+                "valid_intervention_frac": train_result.get("valid_intervention_frac"),
             }
         )
         print(
             f"[journal] {variant} epoch {epoch + 1}/{int(config['training']['epochs'])} "
             f"train_loss={train_result['loss']:.4f} val_loss={val_result['loss']:.4f} "
-            f"val_auc={history[-1]['val_auc']}",
+            f"val_auc={history[-1]['val_auc']} "
+            f"phase={train_result.get('phase')} "
+            f"apis_l2={train_result.get('apis_coefficient_l2')} "
+            f"valid_frac={train_result.get('valid_intervention_frac')}",
             flush=True,
         )
         if best_key is None or key > best_key:
@@ -1105,6 +1163,19 @@ def _train_variant(
             "metrics": subject_metrics,
             "bootstrap_ci": ci,
         }
+        strengths = result.get("field_strengths")
+        if strengths is not None and len(strengths) == len(result["labels"]):
+            reports[split]["metrics_by_field_strength"] = (
+                compute_metrics_by_field_strength(
+                    probabilities,
+                    result["labels"],
+                    strengths,
+                    result["environments"],
+                    input_type="probabilities",
+                    subject_ids=result["subjects"],
+                    aggregate=aggregate,
+                )
+            )
     baseline_name = VARIANT_DISPLAY.get(variant, variant)
     if variant == "ce_only" and not bool(
         config.get("training", {}).get("class_weighted_ce", False)
@@ -1417,6 +1488,12 @@ def run(
     train_ratio = float(train_cfg.get("train_ratio", 0.6))
     val_ratio = float(train_cfg.get("val_ratio", 0.2))
     test_ratio = float(train_cfg.get("test_ratio", 0.2))
+    claim_cfg = config.get("claim") or {}
+    holdout_subjects: set[str] = set()
+    holdout_path = claim_cfg.get("exclude_subjects_json")
+    holdout_key = str(claim_cfg.get("exclude_subjects_key", "subjects_le_30d"))
+    if holdout_path:
+        holdout_subjects = load_holdout_subjects(holdout_path, key=holdout_key)
     frozen_manifest = None
     if split_manifest:
         train_indices, val_indices, test_indices, frozen_manifest = _load_frozen_split(
@@ -1426,6 +1503,37 @@ def run(
         train_indices, val_indices, test_indices = _split_source(
             source, train_ratio, val_ratio, test_ratio, int(config["seed"])
         )
+    if holdout_subjects:
+        # Mechanism subjects must not enter train/val/selection; drop from all
+        # source splits. Target cohort may still contain them for E3 eval only.
+        train_indices = np.asarray(
+            filter_indices_excluding_subjects(
+                source.subject_ids, train_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
+        val_indices = np.asarray(
+            filter_indices_excluding_subjects(
+                source.subject_ids, val_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
+        test_indices = np.asarray(
+            filter_indices_excluding_subjects(
+                source.subject_ids, test_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
+        for name, indices in (
+            ("train", train_indices),
+            ("val", val_indices),
+            ("test", test_indices),
+        ):
+            assert_no_holdout_leak(
+                source.subject_ids, indices, holdout_subjects, split_name=name
+            )
+            if len(indices) == 0:
+                raise RuntimeError(f"hold-out exclusion emptied source {name} split")
     assert_disjoint_subjects(
         source.subject_ids[train_indices],
         source.subject_ids[val_indices],
@@ -1449,7 +1557,10 @@ def run(
         raise ValueError("training.batch_size must be >= 2 for BatchNorm stability")
     generator = torch.Generator().manual_seed(int(config["seed"]))
     common = {"num_workers": int(config["training"]["num_workers"])}
-    requested = list(variants or config.get("variants") or [])
+    requested = [
+        VARIANT_ALIASES.get(str(item), str(item))
+        for item in list(variants or config.get("variants") or [])
+    ]
     use_subject_balance = bool(
         (config.get("dual_shift") or {}).get("subject_balanced_sampler", True)
     ) and any(v in DUAL_SHIFT_VARIANTS or v == "ce_only" for v in requested)
@@ -1507,6 +1618,13 @@ def run(
         "test": test_ratio,
     }
     manifest["frozen_split_manifest"] = split_manifest
+    manifest["claim_holdout"] = {
+        "enabled": bool(holdout_subjects),
+        "path": holdout_path,
+        "key": holdout_key if holdout_path else None,
+        "n_excluded_subjects": int(len(holdout_subjects)),
+        "excluded_subjects": sorted(holdout_subjects),
+    }
     manifest["match_audit"] = {
         "source": getattr(source, "match_audit", {}),
         "target": getattr(target, "match_audit", {}),
@@ -1516,7 +1634,7 @@ def run(
         Path(output_dir) / "metadata_match_audit.json",
         manifest["match_audit"],
     )
-    selected = variants or config["variants"]
+    selected = requested
     unknown = set(selected).difference(VARIANT_STAGES)
     if unknown:
         raise ValueError(f"Unknown journal variants: {sorted(unknown)}")
