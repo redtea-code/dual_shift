@@ -24,6 +24,7 @@
 | [`01_dual_shift_next_step_decision_2026-07-29.md`](plans/01_dual_shift_next_step_decision_2026-07-29.md) | 下一步实验与论文决策边界 |
 | [`02_dual_shift_experiment_schedule_2026-07-29.md`](plans/02_dual_shift_experiment_schedule_2026-07-29.md) | postfix 后续实验执行安排 |
 | [`09_apis_3seed_samehost_repro_plan_2026-07-30.md`](plans/09_apis_3seed_samehost_repro_plan_2026-07-30.md) | APIS 同机三种子复现预注册计划 |
+| [`10_apis_v2_claim_validation_plan_2026-07-30.md`](plans/10_apis_v2_claim_validation_plan_2026-07-30.md) | APIS v2 主张边界与验证实验方案 |
 
 ### Records
 

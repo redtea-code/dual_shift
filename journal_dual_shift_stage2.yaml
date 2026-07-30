@@ -97,7 +97,10 @@ loss:
 dual_shift:
   warm_clean_epochs: 5
   warm_apis_epochs: 5
-  alpha_max: 0.5
+  # APIS v2: bounded residual intervention over observed source protocols.
+  alpha_max: 0.25
+  apis_basis_count: 4
+  apis_rank: 8
   prototype_min_subjects: 8
   age_bandwidth: 1.0
   education_bandwidth: 1.0
@@ -107,6 +110,7 @@ dual_shift:
   lambda_shift: 1.0
   lambda_js: 0.25
   lambda_feat: 0.1
+  lambda_intervention: 0.001
   lambda_kl: 0.05
   mixstyle_p: 0.5
   mixstyle_alpha: 0.1

@@ -28,7 +28,9 @@ class DualShiftResNet3D(nn.Module):
         dropout: float = 0.1,
         fusion_rank: int = 16,
         acquisition_out_dim: int = 32,
-        alpha_max: float = 0.5,
+        alpha_max: float = 0.25,
+        apis_basis_count: int = 4,
+        apis_rank: int = 8,
         use_apis: bool = True,
         use_cdt: bool = True,
         use_mixstyle: bool = False,
@@ -52,7 +54,14 @@ class DualShiftResNet3D(nn.Module):
         self.dropout = nn.Dropout(p=float(dropout))
         self.classifier = nn.Linear(self.backbone.out_channels, self.num_classes)
         self.acquisition_encoder = AcquisitionDescriptorEncoder(out_dim=acquisition_out_dim)
-        self.apis = APISModule(alpha_max=alpha_max)
+        self.apis = APISModule(
+            layer1_channels=self.backbone.layer1_channels,
+            layer2_channels=self.backbone.layer2_channels,
+            acquisition_dim=acquisition_out_dim,
+            alpha_max=alpha_max,
+            basis_count=apis_basis_count,
+            rank=apis_rank,
+        )
         self.mixstyle1 = MixStyle(p=mixstyle_p, alpha=mixstyle_alpha)
         self.mixstyle2 = MixStyle(p=mixstyle_p, alpha=mixstyle_alpha)
         self.prototype_bank = ProtocolPrototypeBank(min_subjects=prototype_min_subjects)
@@ -163,36 +172,38 @@ class DualShiftResNet3D(nn.Module):
                 clean_feats["layer2"].detach(),
             )
 
-        mean1, std1, mean2, std2, selected = self.prototype_bank.sample_targets(
+        target_acq_emb, selected = self.prototype_bank.sample_target_embeddings(
             domain_keys, device=image.device
         )
-        if mean1 is None:
+        if target_acq_emb is None:
             return DualShiftOutput(
                 clean_logits=clean_logits,
                 clean_embedding=clean_embedding,
                 demographic_embedding=demo,
                 shift_strength=image.new_zeros(()),
                 selected_protocol_index=selected,
-                extras={"apis_skipped": "no_valid_prototype"},
+                extras={"apis_skipped": "no_valid_observed_protocol"},
             )
-        shift1, shift2 = self.apis.make_shift_fns(
-            target_mean1=mean1,
-            target_std1=std1,
-            target_mean2=mean2,
-            target_std2=std2,
-        )
+        condition = self.apis.protocol_condition(acq_emb, target_acq_emb.detach())
+        shift1, shift2 = self.apis.make_shift_fns(condition)
         shifted_feats = self.backbone(image, shift_layer1=shift1, shift_layer2=shift2)
         shifted_logits, shifted_embedding, _ = self._heads(
             shifted_feats["layer4"], covariates, **head_kwargs
         )
+        apis_audit = self.apis.audit_tensors(image)
         return DualShiftOutput(
             clean_logits=clean_logits,
             shifted_logits=shifted_logits,
             clean_embedding=clean_embedding,
             shifted_embedding=shifted_embedding,
             demographic_embedding=demo,
-            shift_strength=image.new_tensor(self.apis.current_alpha),
+            shift_strength=apis_audit["strength"],
             selected_protocol_index=selected,
+            extras={
+                "apis_mode": "observed_protocol_residual",
+                "apis_coefficient_l2": apis_audit["coefficient_l2"],
+                "protocol_condition_norm": condition.norm(dim=1).mean(),
+            },
         )
 
     def fit_acquisition_encoder(self, acquisitions: Sequence[Mapping[str, Any]]) -> None:

@@ -66,13 +66,15 @@ def compute_dual_shift_loss(
     class_weights: Optional[torch.Tensor] = None,
     kl_value: float = 0.0,
     shift_strength: float = 0.0,
-    alpha_max: float = 0.5,
+    alpha_max: float = 0.25,
     lambda_shift: float = 1.0,
     lambda_js: float = 0.25,
     lambda_feat: float = 0.1,
     lambda_kl: float = 0.05,
     enable_apis: bool = True,
     penalize_alpha_overflow: bool = False,
+    intervention_penalty: Optional[torch.Tensor] = None,
+    lambda_intervention: float = 0.001,
 ) -> Dict[str, torch.Tensor]:
     clean_ce = _weighted_ce(clean_logits, labels, sample_weights, class_weights)
     losses = {
@@ -82,6 +84,7 @@ def compute_dual_shift_loss(
         "feat": clean_logits.new_zeros(()),
         "kl": clean_logits.new_tensor(float(kl_value)),
         "strength": clean_logits.new_zeros(()),
+        "intervention": clean_logits.new_zeros(()),
     }
     total = clean_ce + lambda_kl * losses["kl"]
     if enable_apis and shifted_logits is not None:
@@ -102,6 +105,9 @@ def compute_dual_shift_loss(
             )
             losses["strength"] = strength
             total = total + strength
+        if intervention_penalty is not None:
+            losses["intervention"] = intervention_penalty.to(clean_logits.device)
+            total = total + lambda_intervention * losses["intervention"]
     with torch.no_grad():
         losses["per_sample_clean"] = F.cross_entropy(
             clean_logits, labels, reduction="none"
