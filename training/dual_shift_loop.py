@@ -206,7 +206,9 @@ def run_dual_shift_epoch(
             if training and model.use_cdt:
                 sample_weights = model.cdt.batch_weights(sample_ids).to(device)
             extras = outputs.extras or {}
-            intervention_penalty = extras.get("apis_coefficient_l2")
+            intervention_penalty = extras.get("apis_coefficient_l2_per_sample")
+            if intervention_penalty is None:
+                intervention_penalty = extras.get("apis_coefficient_l2")
             intervention_mask = extras.get("valid_intervention_mask")
             loss_dict = compute_dual_shift_loss(
                 clean_logits=outputs.clean_logits,

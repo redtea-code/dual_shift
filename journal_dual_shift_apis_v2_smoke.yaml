@@ -93,7 +93,7 @@ loss:
 dual_shift:
   warm_clean_epochs: 1
   warm_apis_epochs: 2
-  alpha_max: 0.5
+  alpha_max: 0.25
   prototype_min_subjects: 8
   age_bandwidth: 1.0
   education_bandwidth: 1.0

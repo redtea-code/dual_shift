@@ -31,7 +31,10 @@ Reference: FiLM — Perez et al., AAAI 2018
 import torch
 import torch.nn as nn
 
-from Model.E1 import SpatiallyCorrelatedCAPM
+try:
+    from Model.E1 import SpatiallyCorrelatedCAPM
+except Exception:  # pragma: no cover - optional legacy dependency
+    SpatiallyCorrelatedCAPM = None
 
 
 def conv3x3x3(in_planes, out_planes, stride=1, dilation=1):
@@ -329,6 +332,10 @@ class ResNetE1Backbone(nn.Module):
                  block=BasicBlock, layers=(2, 2, 2, 2),
                  pretrained_weights=True, get_feature=True, spatial_shape=(4, 4, 4)):
         super().__init__()
+        if SpatiallyCorrelatedCAPM is None:
+            raise ImportError(
+                "ResNetE1Backbone requires Model.E1.SpatiallyCorrelatedCAPM"
+            )
 
         # ── Stem ──
         self.conv1 = nn.Conv3d(

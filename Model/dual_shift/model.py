@@ -163,11 +163,9 @@ class DualShiftResNet3D(nn.Module):
             )
 
         acq_emb = self.acquisition_encoder(acquisitions)
-        if bool(getattr(self, "shuffle_acquisition", False)) and acq_emb.shape[0] > 1:
-            perm = torch.randperm(acq_emb.shape[0], device=acq_emb.device)
-            acq_emb = acq_emb[perm]
         domain_keys = self.acquisition_encoder.domain_keys(acquisitions)
         # Collect into pending only; never mutate the frozen sampling bank mid-epoch.
+        # Prototype updates always use factual (unshuffled) descriptors.
         if update_prototypes and subject_ids is not None:
             self.prototype_bank.collect_epoch_statistics(
                 domain_keys,
@@ -197,21 +195,23 @@ class DualShiftResNet3D(nn.Module):
                     "valid_intervention_frac": valid_frac,
                 },
             )
-        # Invalid rows keep a placeholder target; blend back to the clean path
-        # after the residual forward so one missing protocol never drops the batch.
+        # Invalid rows keep a placeholder target; residual mask zeros the
+        # intervention at layer1/layer2 so BN/features stay on the clean path.
         safe_target = target_acq_emb.detach().clone()
         if not bool(valid_mask.all().item()):
             safe_target[~valid_mask] = acq_emb.detach()[~valid_mask]
-        condition = self.apis.protocol_condition(acq_emb, safe_target)
-        shift1, shift2 = self.apis.make_shift_fns(condition)
+        # Negative control: shuffle only the factual descriptor used to build
+        # the APIS condition; prototype bank and domain keys stay factual.
+        factual_for_condition = acq_emb
+        if bool(getattr(self, "shuffle_acquisition", False)) and acq_emb.shape[0] > 1:
+            perm = torch.randperm(acq_emb.shape[0], device=acq_emb.device)
+            factual_for_condition = acq_emb[perm]
+        condition = self.apis.protocol_condition(factual_for_condition, safe_target)
+        shift1, shift2 = self.apis.make_shift_fns(condition, valid_mask=valid_mask)
         shifted_feats = self.backbone(image, shift_layer1=shift1, shift_layer2=shift2)
         shifted_logits, shifted_embedding, _ = self._heads(
             shifted_feats["layer4"], covariates, **head_kwargs
         )
-        if not bool(valid_mask.all().item()):
-            keep = valid_mask.to(dtype=shifted_logits.dtype).reshape(-1, 1)
-            shifted_logits = keep * shifted_logits + (1.0 - keep) * clean_logits
-            shifted_embedding = keep * shifted_embedding + (1.0 - keep) * clean_embedding
         apis_audit = self.apis.audit_tensors(image)
         return DualShiftOutput(
             clean_logits=clean_logits,
@@ -224,6 +224,9 @@ class DualShiftResNet3D(nn.Module):
             extras={
                 "apis_mode": "observed_protocol_residual",
                 "apis_coefficient_l2": apis_audit["coefficient_l2"],
+                "apis_coefficient_l2_per_sample": apis_audit.get(
+                    "coefficient_l2_per_sample"
+                ),
                 "protocol_condition_norm": condition.norm(dim=1).mean(),
                 "valid_intervention_mask": valid_mask,
                 "valid_intervention_frac": valid_frac,

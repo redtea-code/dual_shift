@@ -89,7 +89,12 @@ class ProtocolResidualOperator(nn.Module):
             )
         if strength <= 0:
             zero = features.new_zeros(())
-            return features, {"strength": zero, "coefficient_l2": zero}
+            zeros = features.new_zeros((features.shape[0],))
+            return features, {
+                "strength": zero,
+                "coefficient_l2": zeros,
+                "realized_per_sample": zeros,
+            }
 
         coefficients = torch.tanh(self.controller(self.condition_norm(condition)))
         coefficients = coefficients / math.sqrt(float(self.basis_count))
@@ -117,10 +122,11 @@ class ProtocolResidualOperator(nn.Module):
         realized = (
             (float(strength) * residual_rms * rms_scale.float())
             / feature_rms.clamp_min(1e-6)
-        ).mean()
+        )
         return shifted, {
-            "strength": realized,
-            "coefficient_l2": coefficients.square().mean(),
+            "strength": realized.mean(),
+            "coefficient_l2": coefficients.square().mean(dim=-1),
+            "realized_per_sample": realized,
         }
 
 
@@ -171,23 +177,46 @@ class APISModule(nn.Module):
             raise ValueError("factual and target acquisition embeddings must match")
         return torch.cat([factual, target, target - factual], dim=1)
 
-    def make_shift_fns(self, condition: torch.Tensor):
+    def make_shift_fns(
+        self,
+        condition: torch.Tensor,
+        *,
+        valid_mask: torch.Tensor | None = None,
+    ):
         alpha = self.current_alpha if self.enabled else 0.0
         self._last_audit = {}
+        mask = None
+        if valid_mask is not None:
+            mask = valid_mask.to(dtype=torch.bool).reshape(-1)
+
+        def _apply(features: torch.Tensor, operator: ProtocolResidualOperator, key: str):
+            if alpha <= 0:
+                return features
+            shifted, audit = operator(features, condition, alpha)
+            coeff = audit["coefficient_l2"]
+            if mask is not None:
+                keep = mask.to(device=features.device, dtype=features.dtype).reshape(
+                    -1, *([1] * (features.ndim - 1))
+                )
+                shifted = features + keep * (shifted - features)
+                coeff = coeff.to(features.device) * mask.to(
+                    device=features.device, dtype=coeff.dtype
+                )
+            self._last_audit[key] = {
+                "strength": audit["strength"],
+                "coefficient_l2": coeff,
+            }
+            return shifted
 
         def shift1(features: torch.Tensor) -> torch.Tensor:
-            if not self.use_layer1 or alpha <= 0:
+            if not self.use_layer1:
                 return features
-            shifted, audit = self.layer1_operator(features, condition, alpha)
-            self._last_audit["layer1"] = audit
-            return shifted
+            return _apply(features, self.layer1_operator, "layer1")
 
         def shift2(features: torch.Tensor) -> torch.Tensor:
-            if not self.use_layer2 or alpha <= 0:
+            if not self.use_layer2:
                 return features
-            shifted, audit = self.layer2_operator(features, condition, alpha)
-            self._last_audit["layer2"] = audit
-            return shifted
+            return _apply(features, self.layer2_operator, "layer2")
 
         return shift1, shift2
 
@@ -195,9 +224,29 @@ class APISModule(nn.Module):
         if not self._last_audit:
             zero = reference.new_zeros(())
             return {"strength": zero, "coefficient_l2": zero}
+        strengths = []
+        coeffs = []
+        for entry in self._last_audit.values():
+            strengths.append(entry["strength"])
+            coeff = entry["coefficient_l2"]
+            if coeff.ndim == 0:
+                coeffs.append(coeff)
+            else:
+                # Mean over samples that retained a non-zero masked penalty mass.
+                active = coeff.detach() != 0
+                if bool(active.any().item()):
+                    coeffs.append(coeff[active].mean())
+                else:
+                    coeffs.append(coeff.new_zeros(()))
         return {
-            name: torch.stack(
-                [entry[name] for entry in self._last_audit.values()]
-            ).mean()
-            for name in ("strength", "coefficient_l2")
+            "strength": torch.stack(strengths).mean(),
+            "coefficient_l2": torch.stack(coeffs).mean(),
+            "coefficient_l2_per_sample": torch.stack(
+                [
+                    entry["coefficient_l2"]
+                    if entry["coefficient_l2"].ndim > 0
+                    else entry["coefficient_l2"].expand(reference.shape[0])
+                    for entry in self._last_audit.values()
+                ]
+            ).mean(dim=0),
         }

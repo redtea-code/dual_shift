@@ -118,7 +118,17 @@ def compute_dual_shift_loss(
             losses["strength"] = strength
             total = total + strength
         if intervention_penalty is not None:
-            losses["intervention"] = intervention_penalty.to(clean_logits.device)
+            pen = intervention_penalty.to(clean_logits.device)
+            if intervention_mask is not None and pen.ndim > 0:
+                mask = intervention_mask.to(device=pen.device, dtype=pen.dtype).reshape(
+                    -1
+                )
+                pen = pen.reshape(-1)
+                denom = mask.sum().clamp_min(1.0)
+                pen = (pen * mask).sum() / denom
+            elif pen.ndim > 0:
+                pen = pen.mean()
+            losses["intervention"] = pen
             total = total + lambda_intervention * losses["intervention"]
     with torch.no_grad():
         losses["per_sample_clean"] = F.cross_entropy(

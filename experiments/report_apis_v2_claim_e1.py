@@ -1,8 +1,8 @@
 ﻿"""Aggregate APIS v2 claim E1 metrics (primary: balanced_accuracy).
 
-Smoke outputs must not be passed as --seed-root. Compares apis_v2 against
-mixstyle and metadata with seed-level mean 螖 and optional subject-level
-paired bootstrap when prediction CSVs are present.
+Formal gate requires every preregistered seed and direction to be present.
+Paired bootstrap requires identical subject sets and labels (no silent
+intersection). Smoke paths are refused.
 """
 from __future__ import annotations
 
@@ -46,11 +46,7 @@ def _field_metric(block: Dict[str, Any], stratum: str, key: str):
 def _load_variant(run_dir: Path, variant: str) -> Optional[Dict[str, Any]]:
     path = run_dir / variant / "journal_metrics.json"
     if not path.exists():
-        # Historical alias directory name from smoke runs.
-        if variant == "apis_v2":
-            path = run_dir / "apis_only" / "journal_metrics.json"
-        if not path.exists():
-            return None
+        return None
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -65,41 +61,54 @@ def _mean_std(values: List[float]) -> Dict[str, Optional[float]]:
     return {"mean": mean, "std": math.sqrt(var), "n": len(vals)}
 
 
-def _load_pred_probs(path: Path) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+def _load_pred_table(
+    path: Path,
+) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
     if not path.exists():
         return None
-    subjects, labels, probs = [], [], []
+    subjects, folders, labels, probs = [], [], [], []
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
+        fields = reader.fieldnames or []
         prob_cols = sorted(
-            [c for c in reader.fieldnames or [] if c.startswith("probability_")],
+            [c for c in fields if c.startswith("probability_")],
             key=lambda name: int(name.split("_")[1]),
         )
         if not prob_cols:
             return None
         for row in reader:
             subjects.append(str(row["subject_id"]))
+            folders.append(str(row.get("folder", "")))
             labels.append(int(row["label"]))
             probs.append([float(row[col]) for col in prob_cols])
-    return np.asarray(subjects), np.asarray(labels, dtype=int), np.asarray(probs, dtype=float)
+    return (
+        np.asarray(subjects, dtype=object),
+        np.asarray(folders, dtype=object),
+        np.asarray(labels, dtype=int),
+        np.asarray(probs, dtype=float),
+    )
 
 
-def _subject_mean_table(subjects, labels, probs):
+def _subject_mean_table(subjects, folders, labels, probs):
     unique = []
     seen = set()
     for subject in subjects.tolist():
         if subject not in seen:
             unique.append(subject)
             seen.add(subject)
-    agg_probs, agg_labels, agg_subjects = [], [], []
+    agg_probs, agg_labels, agg_subjects, agg_folders = [], [], [], []
     for subject in unique:
         mask = subjects == subject
         agg_probs.append(probs[mask].mean(axis=0))
         counts = np.bincount(labels[mask], minlength=probs.shape[1])
         agg_labels.append(int(np.argmax(counts)))
+        # Deterministic folder token for alignment checks across variants.
+        folder_vals, folder_counts = np.unique(folders[mask], return_counts=True)
+        agg_folders.append(str(folder_vals[int(np.argmax(folder_counts))]))
         agg_subjects.append(subject)
     return (
         np.asarray(agg_subjects, dtype=object),
+        np.asarray(agg_folders, dtype=object),
         np.asarray(agg_labels, dtype=int),
         np.asarray(agg_probs, dtype=float),
     )
@@ -117,30 +126,31 @@ def _paired_delta_bootstrap(
     *,
     n_bootstrap: int = 1000,
     seed: int = 0,
-) -> Optional[Dict[str, Any]]:
-    loaded_a = _load_pred_probs(path_a)
-    loaded_b = _load_pred_probs(path_b)
+) -> Dict[str, Any]:
+    loaded_a = _load_pred_table(path_a)
+    loaded_b = _load_pred_table(path_b)
     if loaded_a is None or loaded_b is None:
-        return None
-    sub_a, lab_a, prob_a = _subject_mean_table(*loaded_a)
-    sub_b, lab_b, prob_b = _subject_mean_table(*loaded_b)
-    common = sorted(set(sub_a.tolist()).intersection(sub_b.tolist()))
-    if len(common) < 5:
-        return None
-    index_a = {s: i for i, s in enumerate(sub_a.tolist())}
-    index_b = {s: i for i, s in enumerate(sub_b.tolist())}
-    labs = np.asarray([lab_a[index_a[s]] for s in common], dtype=int)
-    pa = np.asarray([prob_a[index_a[s]] for s in common], dtype=float)
-    pb = np.asarray([prob_b[index_b[s]] for s in common], dtype=float)
-    point = _balanced_accuracy(labs, pa) - _balanced_accuracy(labs, pb)
+        raise ValueError(f"missing prediction CSV for paired bootstrap: {path_a} / {path_b}")
+    sub_a, fold_a, lab_a, prob_a = _subject_mean_table(*loaded_a)
+    sub_b, fold_b, lab_b, prob_b = _subject_mean_table(*loaded_b)
+    if sub_a.tolist() != sub_b.tolist():
+        raise ValueError(
+            "paired bootstrap requires identical subject order/set; "
+            f"got {len(sub_a)} vs {len(sub_b)} subjects"
+        )
+    if not np.array_equal(lab_a, lab_b):
+        raise ValueError("paired bootstrap requires identical subject labels")
+    if fold_a.tolist() != fold_b.tolist():
+        raise ValueError("paired bootstrap requires identical subject folder tokens")
+    point = _balanced_accuracy(lab_a, prob_a) - _balanced_accuracy(lab_a, prob_b)
     rng = np.random.RandomState(seed)
     boots = []
-    n = len(common)
+    n = len(sub_a)
     for _ in range(n_bootstrap):
         draw = rng.randint(0, n, size=n)
         boots.append(
-            _balanced_accuracy(labs[draw], pa[draw])
-            - _balanced_accuracy(labs[draw], pb[draw])
+            _balanced_accuracy(lab_a[draw], prob_a[draw])
+            - _balanced_accuracy(lab_a[draw], prob_b[draw])
         )
     lo, hi = np.percentile(boots, [2.5, 97.5])
     return {
@@ -166,6 +176,11 @@ def main() -> None:
         default=PROJECT_ROOT / "outputs/journal/dual_shift_apis_v2/claim/e1",
     )
     parser.add_argument("--bootstrap", type=int, default=1000)
+    parser.add_argument(
+        "--allow-incomplete",
+        action="store_true",
+        help="Dev-only: skip formal completeness gate (never for claim freeze).",
+    )
     args = parser.parse_args()
     if "smoke" in str(args.seed_root).replace("\\", "/").lower():
         raise SystemExit("refuse to aggregate smoke/ as claim E1 evidence")
@@ -173,6 +188,7 @@ def main() -> None:
     seeds = [int(x) for x in args.seeds.split(",") if x.strip()]
     rows = []
     paired = {d: {} for d in DIRECTIONS}
+    missing = []
     for seed in seeds:
         for direction in DIRECTIONS:
             run_dir = args.seed_root / f"seed{seed}" / direction
@@ -185,7 +201,9 @@ def main() -> None:
                     "variant": variant,
                     "present": metrics is not None,
                 }
-                if metrics is not None:
+                if metrics is None:
+                    missing.append(f"seed{seed}/{direction}/{variant}")
+                else:
                     for key in KEYS:
                         row[key] = _metric(metrics, key)
                     for stratum in ("1.5T", "3T"):
@@ -193,14 +211,14 @@ def main() -> None:
                             metrics, stratum, PRIMARY
                         )
                 rows.append(row)
-            if loaded.get("apis_v2") and loaded.get("mixstyle"):
+            if all(loaded.get(v) is not None for v in ("apis_v2", "mixstyle")):
                 paired[direction][f"seed{seed}_vs_mixstyle"] = _paired_delta_bootstrap(
                     run_dir / "apis_v2" / "target_predictions.csv",
                     run_dir / "mixstyle" / "target_predictions.csv",
                     n_bootstrap=args.bootstrap,
                     seed=seed,
                 )
-            if loaded.get("apis_v2") and loaded.get("metadata"):
+            if all(loaded.get(v) is not None for v in ("apis_v2", "metadata")):
                 paired[direction][f"seed{seed}_vs_metadata"] = _paired_delta_bootstrap(
                     run_dir / "apis_v2" / "target_predictions.csv",
                     run_dir / "metadata" / "target_predictions.csv",
@@ -208,13 +226,23 @@ def main() -> None:
                     seed=seed,
                 )
 
+    complete = len(missing) == 0
+    if not complete and not args.allow_incomplete:
+        raise SystemExit(
+            "claim E1 incomplete; refusing formal gate. missing="
+            + ",".join(missing[:20])
+            + ("..." if len(missing) > 20 else "")
+        )
+
     summary: Dict[str, Any] = {
         "seeds": seeds,
         "primary_metric": PRIMARY,
+        "complete": complete,
+        "missing": missing,
         "rows": rows,
         "paired_bootstrap": paired,
         "aggregates": {},
-        "claim_preview": {},
+        "claim_gate": {},
     }
     for direction in DIRECTIONS:
         summary["aggregates"][direction] = {}
@@ -264,15 +292,18 @@ def main() -> None:
                 paired[direction].get(f"seed{seed}_vs_{baseline}")
                 for seed in seeds
             ]
-            present_tests = [t for t in seed_tests if t]
-            summary["claim_preview"][f"{direction}_vs_{baseline}"] = {
+            all_seeds_present = all(t is not None for t in seed_tests)
+            summary["claim_gate"][f"{direction}_vs_{baseline}"] = {
                 "seed_mean_delta": _mean_std(deltas),
-                "n_seeds_with_pred_ci": len(present_tests),
+                "n_preregistered_seeds": len(seeds),
+                "n_seeds_with_pred_ci": int(sum(1 for t in seed_tests if t)),
                 "n_seeds_ci_positive": int(
-                    sum(1 for t in present_tests if t.get("positive_for_a"))
+                    sum(1 for t in seed_tests if t and t.get("positive_for_a"))
                 ),
-                "all_present_ci_positive": bool(present_tests)
-                and all(t.get("positive_for_a") for t in present_tests),
+                "all_preregistered_seeds_present": bool(all_seeds_present and complete),
+                "all_preregistered_ci_positive": bool(all_seeds_present)
+                and bool(complete)
+                and all(bool(t.get("positive_for_a")) for t in seed_tests),
             }
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -296,7 +327,8 @@ def main() -> None:
         json.dumps(
             {
                 "wrote": str(out_json),
-                "claim_preview": summary["claim_preview"],
+                "complete": complete,
+                "claim_gate": summary["claim_gate"],
             },
             indent=2,
         )

@@ -34,7 +34,7 @@ class ProtocolResidualOperatorTest(unittest.TestCase):
         features = torch.randn(2, 8, 4, 4, 4)
         shifted, audit = operator(features, torch.zeros(2, 12), strength=0.25)
         torch.testing.assert_close(shifted, features)
-        self.assertEqual(float(audit["coefficient_l2"]), 0.0)
+        self.assertTrue(torch.allclose(audit["coefficient_l2"], torch.zeros(2)))
 
     def test_residual_is_bounded_and_differentiable(self):
         operator = ProtocolResidualOperator(8, 12, basis_count=3, rank=4)
@@ -46,10 +46,27 @@ class ProtocolResidualOperatorTest(unittest.TestCase):
             / features.flatten(1).square().mean(1).sqrt().clamp_min(1e-6)
         )
         self.assertTrue(torch.all(relative_rms <= 0.20001))
-        (shifted.mean() + audit["coefficient_l2"]).backward()
+        (shifted.mean() + audit["coefficient_l2"].mean()).backward()
         self.assertIsNotNone(features.grad)
         self.assertIsNotNone(condition.grad)
         self.assertIsNotNone(operator.controller.weight.grad)
+
+    def test_valid_mask_keeps_invalid_rows_unshifted(self):
+        module = APISModule(
+            layer1_channels=8,
+            layer2_channels=16,
+            acquisition_dim=4,
+            basis_count=2,
+            rank=4,
+        )
+        module.set_alpha(0.2)
+        features = torch.randn(3, 8, 4, 4, 4)
+        condition = torch.randn(3, 12)
+        mask = torch.tensor([True, False, True])
+        shift1, _ = module.make_shift_fns(condition, valid_mask=mask)
+        shifted = shift1(features)
+        torch.testing.assert_close(shifted[1], features[1])
+        self.assertFalse(torch.allclose(shifted[0], features[0]))
 
 
 class APISModuleTest(unittest.TestCase):

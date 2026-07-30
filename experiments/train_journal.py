@@ -124,7 +124,8 @@ VARIANT_DISPLAY = {
     "mixstyle": "mixstyle",
 }
 
-EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat", "metadata"})
+EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
+METADATA_VARIANTS = frozenset({"metadata"})
 PATCH_GAMMA_VARIANTS = frozenset({"gamma"})
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
 DUAL_SHIFT_VARIANTS = frozenset(
@@ -509,21 +510,31 @@ def _make_model(config, num_classes, variant):
             dropout=float(baseline_cfg.get("hyper_dropout", model_config.get("dropout", 0.1))),
             base_channels=int(baseline_cfg.get("hyper_base_channels", 8)),
         )
-    if variant in {"concat", "metadata"}:
-        # Claim metadata baseline: self-contained concat (no Model.comparison).
+    if variant == "metadata":
+        ds = config.get("dual_shift") or {}
         return MetadataConcatBaseline(
             num_classes=num_classes,
-            tabular_dim=covariate_dim,
-            base_channels=int(
-                baseline_cfg.get(
-                    "concat_base_channels", model_config.get("base_channels", 32)
-                )
+            base_channels=int(model_config.get("base_channels", 32)),
+            acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
+            hidden_dim=int(
+                (config.get("baselines") or {}).get("concat_hidden_dim", 128)
             ),
-            tab_feat_dim=int(baseline_cfg.get("concat_tab_feat_dim", 64)),
+            dropout=float(model_config.get("dropout", 0.1)),
+        )
+    if variant == "concat":
+        from Model.comparison.factories import make_concat_fusion
+
+        return make_concat_fusion(
+            in_channels=1,
+            num_tabular=covariate_dim,
+            num_classes=num_classes,
+            img_feat_dim=int(baseline_cfg.get("concat_img_feat_dim", 128)),
+            tab_feat_dim=int(baseline_cfg.get("concat_tab_feat_dim", 128)),
             hidden_dim=int(baseline_cfg.get("concat_hidden_dim", 128)),
             dropout=float(
                 baseline_cfg.get("concat_dropout", model_config.get("dropout", 0.1))
             ),
+            base_channels=int(baseline_cfg.get("concat_base_channels", 8)),
         )
     if variant == "gamma":
         backdoor_kwargs = dict(baseline_cfg.get("gamma_backdoor_kwargs") or {})
@@ -550,6 +561,8 @@ def _logits(model, batch, spatial, variant=None):
     covariates = batch["covariates"]
     if variant in DICTIONARY_VARIANTS:
         return model(image, covariates)
+    if variant in METADATA_VARIANTS:
+        raise RuntimeError("metadata variant must pass acquisitions via _run_epoch")
     if variant in EXTERNAL_FUSION_VARIANTS or variant in PATCH_GAMMA_VARIANTS:
         # FiLM/DAFT/Gamma: (x, txt); HyperFusion/Concat: (image, table).
         return model(image, covariates)
@@ -597,6 +610,10 @@ def _run_epoch(
             if variant in DICTIONARY_VARIANTS:
                 dict_out = model.forward_dict(batch["image"], batch["covariates"])
                 logits = dict_out["logits"]
+            elif variant in METADATA_VARIANTS:
+                if not isinstance(acquisitions, list):
+                    raise RuntimeError("metadata variant requires acquisition rows")
+                logits = model(batch["image"], acquisitions)
             else:
                 logits = _logits(model, batch, spatial, variant=variant)
             if dro is None:
@@ -926,6 +943,7 @@ def _train_variant(
     patch_gamma = variant in PATCH_GAMMA_VARIANTS
     dictionary = variant in DICTIONARY_VARIANTS
     dual_shift = variant in DUAL_SHIFT_VARIANTS
+    metadata = variant in METADATA_VARIANTS
     model = _make_model(config, num_classes, variant).to(device)
     if dictionary:
         from Model.dictionary.journal_dual_dict import resolve_dictionary_preset
@@ -935,6 +953,19 @@ def _train_variant(
         dict_cfg = {}
     if dual_shift:
         initialize_dual_shift_controllers(model, train_loader.dataset, config)
+        parameters = model.parameters()
+        lr = float(config["training"]["learning_rate"])
+        weight_decay = float(config["training"]["weight_decay"])
+    elif metadata:
+        # Fit acquisition vocab/stats on source train only (same rule as APIS).
+        train_subset = train_loader.dataset
+        acquisitions = []
+        for index in train_subset.indices:
+            record = train_subset.dataset.records[int(index)]
+            acquisitions.append(record.get("acquisition") or {})
+        if not any(acquisitions):
+            raise RuntimeError("metadata baseline requires acquisition rows on train set")
+        model.fit_acquisition_encoder(acquisitions)
         parameters = model.parameters()
         lr = float(config["training"]["learning_rate"])
         weight_decay = float(config["training"]["weight_decay"])
@@ -1067,14 +1098,19 @@ def _train_variant(
                 )
                 payload["prototype_bank"] = model.prototype_bank.state_dict()
                 payload["cdt"] = model.cdt.state_dict()
+            if metadata:
+                payload["acquisition_encoder_extra"] = (
+                    model.acquisition_encoder.to_state_dict_extra()
+                )
             torch.save(payload, checkpoint_path)
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    if dual_shift:
+    if dual_shift or metadata:
         if checkpoint.get("acquisition_encoder_extra"):
             model.acquisition_encoder.load_state_dict_extra(
                 checkpoint["acquisition_encoder_extra"]
             )
             model.acquisition_encoder.to(device)
+    if dual_shift:
         if checkpoint.get("prototype_bank"):
             model.prototype_bank.load_state_dict(checkpoint["prototype_bank"])
         if checkpoint.get("cdt"):
