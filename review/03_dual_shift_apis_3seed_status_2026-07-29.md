@@ -3,7 +3,7 @@
 **创建日期：** 2026-07-29  
 **文档序号：** `03`  
 **继承：** `01_dual_shift_next_step_decision_2026-07-29.md`、`02_dual_shift_experiment_schedule_2026-07-29.md`  
-**状态：** 主队列已启动  
+**状态：** 主队列已完成（2026-07-30 ~02:12）；3-seed 报告已生成  
 
 ---
 
@@ -14,7 +14,8 @@
 | P0 协议冻结 | 完成 | `outputs/journal/dual_shift_postfix/protocol_freeze_2026-07-29/` |
 | P2 CDT source 审计 | 完成 | `outputs/journal/dual_shift_apis_3seed/cdt_source_audit_seed42.json` |
 | P1 队列接入 | 完成 | `scripts/run_journal_queue.py` stage=`apis_3seed` |
-| P1 GPU 启动 | 已启动 | seeds 43/44 × 2 方向 × `{ce_only,mixstyle,apis_only}` |
+| P1 GPU 队列 | **完成** | 4/4 jobs 均有 `summary.json`；末 job ~07-30 02:12 |
+| P1 3-seed 汇总 | 完成 | `gate_report_3seed.json` / `metrics_table_3seed.csv` |
 | P1b 配对评估 | 完成 | `outputs/journal/dual_shift_apis_3seed/paired_field_strength_seed42.json` |
 
 ---
@@ -87,5 +88,3 @@ python scripts/report_apis_3seed.py \
 1. 确认 `apis_3seed` 队列首 job 写入 checkpoint / metrics  
 2. 读取配对 JSON，检查 APIS 相对 CE/MixStyle 的 `|Δp|` 是否改善  
 3. 队列全部结束后跑 `report_apis_3seed.py` → Gate A Go/No-Go  
-
-远程分发与认领见：`04_dual_shift_remote_handoff_2026-07-29.md`。  
