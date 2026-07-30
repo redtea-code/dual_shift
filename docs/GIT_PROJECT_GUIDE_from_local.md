@@ -152,42 +152,10 @@ results_tables/
 
 ### 实验记录模板
 
-```markdown
-# <实验 ID>：<简短标题>
-
-## 目的
-
-<要验证的假设，以及与哪个基线比较>
-
-## 可复现信息
-
-- 日期：YYYY-MM-DD
-- 负责人：
-- Git commit：`<git rev-parse HEAD 的输出>`
-- 工作区状态：clean / dirty（dirty 时说明原因）
-- 配置：`config/...`
-- 数据与划分版本：
-- 随机种子：
-- 环境与硬件：
-- 命令：`python ...`
-
-## 结果
-
-| 方法 | AUROC | Accuracy | 备注 |
-|---|---:|---:|---|
-| baseline | | | |
-| proposed | | | |
-
-## 产物
-
-- 外部路径：
-- 文件大小：
-- SHA-256：
-
-## 结论
-
-<结论、局限、是否接受假设、下一步>
-```
+所有新增实验计划、实验记录和结果分析 Markdown 文档，必须使用
+[`docs/EXPERIMENT_RECORD_TEMPLATE.md`](EXPERIMENT_RECORD_TEMPLATE.md) 中的固定格式。
+日期、关联文档、关联数据文件、实验指导与依据、分析与结果、下一步实验指导均为
+必填内容；不适用时写“无”并说明原因，不得删除固定标题或留空。历史文档无需批量改写。
 
 计算大型产物的 SHA-256：
 
