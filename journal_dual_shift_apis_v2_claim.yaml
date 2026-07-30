@@ -2,6 +2,12 @@
 # Primary endpoint: subject-level balanced_accuracy vs MixStyle and metadata.
 # Hold-out: paired <=30d subjects excluded from source train/val/test splits.
 # Do not use smoke/ outputs or 6-epoch budgets for claim decisions.
+#
+# Fairness (metadata vs apis_v2):
+#   both use image backbone + demographic fusion (age/sex/education);
+#   metadata concatenates acquisition descriptors at the head;
+#   apis_v2 applies residual protocol intervention in early CNN layers.
+#   Neither claim wave-1 variant enables CDT.
 
 preprocessing_version: skullstrip+n4+mni+crop+normalize
 conference_reference_commit: d1a37d92ba6e646b3ac710cfff44fb737daafaac
@@ -15,6 +21,7 @@ claim:
   exclude_subjects_key: subjects_le_30d
   protocol: apis_v2_claim_e1
   primary_metric: balanced_accuracy
+  isolate_from_smoke: true
 
 task:
   mode: binary
@@ -102,8 +109,8 @@ loss:
 dual_shift:
   warm_clean_epochs: 5
   warm_apis_epochs: 5
-    alpha_max: 0.25
-    prototype_min_subjects: 8
+  alpha_max: 0.25
+  prototype_min_subjects: 8
   age_bandwidth: 1.0
   education_bandwidth: 1.0
   cross_sex_rho: 0.5
@@ -116,6 +123,8 @@ dual_shift:
   lambda_intervention: 0.001
   apis_basis_count: 4
   apis_rank: 8
+  acquisition_out_dim: 32
+  fusion_rank: 16
   mixstyle_p: 0.5
   mixstyle_alpha: 0.1
   collapse_guard:

@@ -151,6 +151,10 @@ apis_v2_shuffle      # 负对照（可先最小子集）
 **变体（E1 最小可判决集）**
 
 第一波（必须）：`ce_only`, `mixstyle`, `metadata`, `apis_v2`  
+
+其中 `metadata` 与 `apis_v2` **共享**影像 backbone + 人口学融合（age/sex/education）；  
+唯一主差异为协议路径：`metadata` = 采集描述子直接拼接；`apis_v2` = 早期残差协议干预。  
+两者均不启用 CDT。`ce_only` 无人口学融合、无协议条件。  
 第二波（claim 完整性）：`film`, `legacy_apis`, `uncond_residual`  
 第三波（机制最小）：`apis_v2_shuffle`（可先单方向单 seed 再扩）
 

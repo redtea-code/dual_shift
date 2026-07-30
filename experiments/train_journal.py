@@ -85,7 +85,7 @@ VARIANT_STAGES = {
     "film": "baselines",
     "daft": "baselines",
     "hyperfusion": "baselines",
-    # Claim-plan name for direct tabular/metadata concatenation (same as concat).
+    # Claim fair baseline: demographic fusion + direct acquisition concat.
     "metadata": "baselines",
     # Original Wave0 methods re-run under journal protocol (same split/cov3).
     "gamma": "gamma_concat",
@@ -111,7 +111,7 @@ VARIANT_DISPLAY = {
     "film": "film",
     "daft": "daft",
     "hyperfusion": "hyperfusion",
-    "metadata": "metadata_concat",
+    "metadata": "metadata_demo_acq",
     "gamma": "gamma",
     "concat": "concat",
     "dual_dict_linear": "dual_dict_linear",
@@ -472,6 +472,8 @@ def _make_model(config, num_classes, variant):
             num_classes=num_classes,
             base_channels=int(model_config.get("base_channels", 32)),
             dropout=float(model_config.get("dropout", 0.1)),
+            fusion_rank=int(ds.get("fusion_rank", 16)),
+            acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
             alpha_max=float(ds.get("alpha_max", 0.25)),
             apis_basis_count=int(ds.get("apis_basis_count", 4)),
             apis_rank=int(ds.get("apis_rank", 8)),
@@ -516,9 +518,7 @@ def _make_model(config, num_classes, variant):
             num_classes=num_classes,
             base_channels=int(model_config.get("base_channels", 32)),
             acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
-            hidden_dim=int(
-                (config.get("baselines") or {}).get("concat_hidden_dim", 128)
-            ),
+            fusion_rank=int(ds.get("fusion_rank", 16)),
             dropout=float(model_config.get("dropout", 0.1)),
         )
     if variant == "concat":
@@ -613,7 +613,14 @@ def _run_epoch(
             elif variant in METADATA_VARIANTS:
                 if not isinstance(acquisitions, list):
                     raise RuntimeError("metadata variant requires acquisition rows")
-                logits = model(batch["image"], acquisitions)
+                logits = model(
+                    batch["image"],
+                    batch["covariates"],
+                    acquisitions,
+                    age_missing=batch.get("age_missing"),
+                    sex_missing=batch.get("sex_missing"),
+                    education_missing=batch.get("education_missing"),
+                )
             else:
                 logits = _logits(model, batch, spatial, variant=variant)
             if dro is None:
