@@ -2,7 +2,7 @@
 
 **创建日期：** 2026-07-29  
 **文档序号：** `03`  
-**继承：** `01_dual_shift_next_step_decision_2026-07-29.md`、`02_dual_shift_experiment_schedule_2026-07-29.md`  
+**继承：** `review/plans/01_dual_shift_next_step_decision_2026-07-29.md`、`review/plans/02_dual_shift_experiment_schedule_2026-07-29.md`
 **状态：** 主队列已完成（2026-07-30 ~02:12）；3-seed 报告已生成  
 
 ---

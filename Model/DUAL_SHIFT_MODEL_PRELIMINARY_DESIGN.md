@@ -1,7 +1,7 @@
 # CDT–APIS 双轴稳健模型初步方案
 
 **状态：** 模型级设计草案，不包含实现代码  
-**上层研究设计：** `review/journal/dual_shift_design_and_experiment_plan_2026-07-22.md`  
+**上层研究设计：** `review/journal/dual_shift_design_and_experiment_plan_2026-07-22.md`（历史外部文档，当前仓库未收录）
 **主模型暂称：** `DualShiftResNet3D`  
 **核心模块：** Continuous Demographic Transport（CDT）与 Anatomy-Preserving Imaging Shift（APIS）  
 

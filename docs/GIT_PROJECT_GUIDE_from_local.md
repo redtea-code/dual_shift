@@ -142,13 +142,17 @@ git status --short
 ### 推荐目录
 
 ```text
-review/journal/experiments/
-  2026-07-29_dual-shift_seed42.md
+review/
+  plans/       # 实验决策与预注册计划
+  records/     # 执行状态、认领和结果上传记录
+  analysis/    # 指标分析、Gate 判定和综合结论
+  operations/  # 交接与任务分发
 results_tables/
   dual_shift_summary.tsv
 ```
 
-现有结果可暂时继续放在 `review/journal/` 和 `weights/`，等团队统一迁移时再改目录，避免一次性打乱已有脚本。
+分类规则和当前文档索引见 [`review/README.md`](../review/README.md)。历史文件名保持不变，
+只按主要用途移动目录；`weights/` 中的既有结果暂不迁移，避免打乱已有脚本。
 
 ### 实验记录模板
 

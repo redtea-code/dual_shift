@@ -6,6 +6,10 @@
 文件名遵循：`{index}_{content}_{YYYY-MM-DD}.md`，其中 `index` 为两位递增序号，
 `content` 使用简洁英文 `snake_case`。
 
+保存位置按主要用途选择：计划放入 `review/plans/`，执行记录放入 `review/records/`，
+结果分析放入 `review/analysis/`，交接与任务分发放入 `review/operations/`。
+分类边界和当前索引见 `review/README.md`。
+
 ## 使用要求
 
 1. 实验开始前填写“实验指导与依据”、判定标准和复现信息；结果产生后补充分析。
@@ -25,7 +29,7 @@
 - 负责人：<姓名或账号>
 - 状态：计划中 / 运行中 / 已完成 / 已终止
 - Git commit：`<完整或至少 7 位 commit>`
-- 关联文档：`review/...md`（无则写“无”）
+- 关联文档：`review/<category>/...md`（无则写“无”）
 - 关联数据文件：`outputs/...csv`、`outputs/...json`（无则写“无”）
 
 ## 1. 实验指导与依据

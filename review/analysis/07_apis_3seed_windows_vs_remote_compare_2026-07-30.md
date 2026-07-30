@@ -13,7 +13,7 @@
 | Windows 本机队列 | `outputs/apis_3seed/`（汇总）+ 训练机 `dictionary_learn/outputs/journal/dual_shift_apis_3seed/` | 42+43+44 | Gate A 初判所用；含 seed42 postfix |
 | Linux 远程 | `outputs/journal/dual_shift_apis_3seed/` | **仅 43/44** | 分支 `results/apis_3seed_remote_43_44`；无 seed42；无 checkpoint |
 
-配置名义均为 postfix 冻结协议；远程有路径 remap（`journal_dual_shift_postfix_remote.yaml`）与少量工程适配（见 `05_dual_shift_remote_claim_2026-07-29.md`）。**数值不可当作同一次训练的重复。**
+配置名义均为 postfix 冻结协议；远程有路径 remap（`journal_dual_shift_postfix_remote.yaml`）与少量工程适配（见 `review/records/05_dual_shift_remote_claim_2026-07-29.md`）。**数值不可当作同一次训练的重复。**
 
 ---
 

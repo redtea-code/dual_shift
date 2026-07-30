@@ -2,7 +2,7 @@
 
 **创建日期：** 2026-07-29  
 **文档序号：** `02`  
-**继承决策：** `01_dual_shift_next_step_decision_2026-07-29.md`  
+**继承决策：** `review/plans/01_dual_shift_next_step_decision_2026-07-29.md`
 **状态：** 生效 / 可执行  
 
 ---
@@ -191,4 +191,4 @@ python scripts/audit_cdt_source.py \
 - [x] 构建配对表并启动 seed42 配对评估  
 - [x] 落地 CDT 审计脚本并跑 seed42  
 
-进度与 Gate A 预览见：`03_dual_shift_apis_3seed_status_2026-07-29.md`。
+进度与 Gate A 预览见：`review/records/03_dual_shift_apis_3seed_status_2026-07-29.md`。

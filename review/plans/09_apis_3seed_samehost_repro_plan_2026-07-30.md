@@ -3,17 +3,17 @@
 ## 基本信息
 
 - 日期：2026-07-30
-- 负责人：远程 Linux 节点执行；汇总与 Gate A 判定对齐 `review/08_dual_shift_apis_3seed_analysis_2026-07-30.md`
+- 负责人：远程 Linux 节点执行；汇总与 Gate A 判定对齐 `review/analysis/08_dual_shift_apis_3seed_analysis_2026-07-30.md`
 - 状态：计划中
 - Git commit：分析基线 `15aa231`（含 `08`）；执行前须记录训练代码与配置的完整 commit / SHA
-- 关联文档：`review/08_dual_shift_apis_3seed_analysis_2026-07-30.md`、`review/07_apis_3seed_windows_vs_remote_compare_2026-07-30.md`、`review/05_dual_shift_apis_3seed_gate_a_report_2026-07-30.md`、`review/01_dual_shift_next_step_decision_2026-07-29.md`、`docs/EXPERIMENT_RECORD_TEMPLATE.md`
+- 关联文档：`review/analysis/08_dual_shift_apis_3seed_analysis_2026-07-30.md`、`review/analysis/07_apis_3seed_windows_vs_remote_compare_2026-07-30.md`、`review/analysis/05_dual_shift_apis_3seed_gate_a_report_2026-07-30.md`、`review/plans/01_dual_shift_next_step_decision_2026-07-29.md`、`docs/EXPERIMENT_RECORD_TEMPLATE.md`
 - 关联数据文件：计划写入 `outputs/journal/dual_shift_apis_3seed_samehost/`；完成后生成 `gate_report_3seed.json`、`metrics_table_3seed.csv`（本机单一来源，不与 Windows 混表）
 
 ## 1. 实验指导与依据
 
 - 研究问题：在**单一预注册参考主机**上，用同一代码、环境与数据清单，APIS 是否能在 ADNI↔NACC 双向、seeds 42/43/44 上全部通过正式 Gate A。
 - 假设与基线：`apis_only` 相对同机 `ce_only` 满足 Gate A；`mixstyle` 仅作参照。当前 Windows 正式 Gate A = **No-Go**；Linux 仅有 43/44 且与 Windows 在 seed43 NACC→ADNI 上 ΔF1 符号相反（−0.1063 vs +0.1815），环境冲突是唯一可能改变正式决策的证据缺口。
-- 实施依据：`review/08` §4「建议下一步」；`review/07` 规定 Windows/Linux 数值不可混用；`review/01` 冻结 postfix、禁止 target 调参与任务扩展。
+- 实施依据：`review/analysis/08_dual_shift_apis_3seed_analysis_2026-07-30.md` §4「建议下一步」；`review/analysis/07_apis_3seed_windows_vs_remote_compare_2026-07-30.md` 规定 Windows/Linux 数值不可混用；`review/plans/01_dual_shift_next_step_decision_2026-07-29.md` 冻结 postfix、禁止 target 调参与任务扩展。
 - 实验范围：
   - 任务：CN vs AD（label 1↔0 / 3↔1）
   - 方向：ADNI→NACC、NACC→ADNI
@@ -92,7 +92,7 @@ PY
 $JOURNAL_PYTHON scripts/run_journal_queue.py \
   --stages apis_3seed_samehost \
   --device cuda --max-workers 3 \
-  --plan review/09_apis_3seed_samehost_repro_plan_2026-07-30.md
+  --plan review/plans/09_apis_3seed_samehost_repro_plan_2026-07-30.md
 # 若队列尚未注册该 stage，等价展开为 6 个 job：
 # seeds 42,43,44 × {ADNI_to_NACC,NACC_to_ADNI}，variants=ce_only mixstyle apis_only
 # --output-dir outputs/journal/dual_shift_apis_3seed_samehost/seed{S}/{adni_to_nacc|nacc_to_adni}
@@ -137,7 +137,7 @@ $JOURNAL_PYTHON scripts/report_apis_3seed.py \
 
 ## 4. 建议下一步实验指导
 
-- 建议动作：在本文件预注册的参考主机上执行 **T0→T1（或 T2 优先）→T3**；完成后按模板另写 `10_..._analysis_...md`。
+- 建议动作：在本文件预注册的参考主机上执行 **T0→T1（或 T2 优先）→T3**；完成后按模板另写 `review/analysis/10_..._analysis_...md`。
 - 建议依据：`08` 指出唯一可能改写正式 Gate A 的冲突是运行环境；同机全量是最小可判决实验。
 - 固定条件：postfix 超参、manifest、subject-mean、CE 基线、seeds、Gate 阈值、聚合方式全部冻结。
 - 进入条件：`env_fingerprint.json` 已写入且配置/manifest SHA 与本文一致；GPU 空闲且不杀他人进程；新输出根为空或显式 `--force` 并记入日志。

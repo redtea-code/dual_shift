@@ -63,11 +63,11 @@
 
 ```text
 review/
-  01_dual_shift_next_step_decision_2026-07-29.md
-  02_dual_shift_experiment_schedule_2026-07-29.md
-  03_dual_shift_apis_3seed_status_2026-07-29.md
-  05_dual_shift_apis_3seed_gate_a_report_2026-07-30.md   ← 本报告
-  dual_shift_postfix_gate_results_2026-07-25.md
+  plans/01_dual_shift_next_step_decision_2026-07-29.md
+  plans/02_dual_shift_experiment_schedule_2026-07-29.md
+  records/03_dual_shift_apis_3seed_status_2026-07-29.md
+  analysis/05_dual_shift_apis_3seed_gate_a_report_2026-07-30.md   ← 本报告
+  analysis/dual_shift_postfix_gate_results_2026-07-25.md
 outputs/
   apis_3seed/{gate_report_3seed.json,metrics_table_3seed.csv,
               cdt_source_audit_seed42.json,paired_field_strength_seed42.json}

@@ -3,9 +3,9 @@
 **创建日期：** 2026-07-29  
 **文档序号：** `04`  
 **继承：**  
-- `01_dual_shift_next_step_decision_2026-07-29.md`（决策边界，生效）  
-- `02_dual_shift_experiment_schedule_2026-07-29.md`（执行安排）  
-- `03_dual_shift_apis_3seed_status_2026-07-29.md`（本机进度快照）  
+- `review/plans/01_dual_shift_next_step_decision_2026-07-29.md`（决策边界，生效）
+- `review/plans/02_dual_shift_experiment_schedule_2026-07-29.md`（执行安排）
+- `review/records/03_dual_shift_apis_3seed_status_2026-07-29.md`（本机进度快照）
 **用途：** 项目已复制到远程服务器后，按本文件分发、认领与验收实验任务。  
 
 ---
@@ -324,9 +324,9 @@ python scripts/report_apis_3seed.py \
 
 | 文档 | 角色 |
 |---|---|
-| `01_dual_shift_next_step_decision_2026-07-29.md` | 决策与不可宣称边界 |
-| `02_dual_shift_experiment_schedule_2026-07-29.md` | 本机执行安排 |
-| `03_dual_shift_apis_3seed_status_2026-07-29.md` | 本机进度与 CDT/配对结论 |
+| `review/plans/01_dual_shift_next_step_decision_2026-07-29.md` | 决策与不可宣称边界 |
+| `review/plans/02_dual_shift_experiment_schedule_2026-07-29.md` | 本机执行安排 |
+| `review/records/03_dual_shift_apis_3seed_status_2026-07-29.md` | 本机进度与 CDT/配对结论 |
 | **本文 `04_...`** | **远程分发与认领** |
 
 问题升级顺序：路径/数据 → 训练崩溃日志 → 是否违反冻结配置 → 是否与本机重复写同一目录。

@@ -2,7 +2,7 @@
 
 **日期：** 2026-07-29  
 **节点：** Linux `/zjs/AD_Project/dual_shift` · env `cyh` · GPU×6  
-**依据：** `04_dual_shift_remote_handoff_2026-07-29.md`（主）、`03_...`、`01_...`
+**依据：** `review/operations/04_dual_shift_remote_handoff_2026-07-29.md`（主）、`review/records/03_dual_shift_apis_3seed_status_2026-07-29.md`、`review/plans/01_dual_shift_next_step_decision_2026-07-29.md`
 
 ---
 

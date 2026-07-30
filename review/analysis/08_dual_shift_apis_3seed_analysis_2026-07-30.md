@@ -6,14 +6,14 @@
 - 负责人：cyh（汇总分析）；redtea-code / Qi Zhang（远程实验与结果提交）
 - 状态：已完成（正式 Gate A = No-Go）
 - Git commit：分析基线 `535eedf`；Windows 结果提交 `a44194e`；Linux 结果提交 `cc45471`
-- 关联文档：`review/01_dual_shift_next_step_decision_2026-07-29.md`、`review/02_dual_shift_experiment_schedule_2026-07-29.md`、`review/03_dual_shift_apis_3seed_status_2026-07-29.md`、`review/04_dual_shift_remote_handoff_2026-07-29.md`、`review/05_dual_shift_apis_3seed_gate_a_report_2026-07-30.md`、`review/05_dual_shift_remote_claim_2026-07-29.md`、`review/06_dual_shift_apis_3seed_remote_results_2026-07-30.md`、`review/07_apis_3seed_windows_vs_remote_compare_2026-07-30.md`
+- 关联文档：`review/plans/01_dual_shift_next_step_decision_2026-07-29.md`、`review/plans/02_dual_shift_experiment_schedule_2026-07-29.md`、`review/records/03_dual_shift_apis_3seed_status_2026-07-29.md`、`review/operations/04_dual_shift_remote_handoff_2026-07-29.md`、`review/analysis/05_dual_shift_apis_3seed_gate_a_report_2026-07-30.md`、`review/records/05_dual_shift_remote_claim_2026-07-29.md`、`review/records/06_dual_shift_apis_3seed_remote_results_2026-07-30.md`、`review/analysis/07_apis_3seed_windows_vs_remote_compare_2026-07-30.md`
 - 关联数据文件：`outputs/apis_3seed/gate_report_3seed.json`、`outputs/apis_3seed/metrics_table_3seed.csv`、`outputs/apis_3seed/cdt_source_audit_seed42.json`、`outputs/apis_3seed/paired_field_strength_seed42.json`、`outputs/journal/dual_shift_apis_3seed/gate_report_3seed.json`、`outputs/journal/dual_shift_apis_3seed/metrics_table_3seed.csv`、`outputs/journal/dual_shift_apis_3seed/seed{43,44}/`
 
 ## 1. 实验指导与依据
 
 - 研究问题：冻结 postfix 协议后，APIS 相对 `ce_only` 是否能在 ADNI→NACC 与 NACC→ADNI 两个方向、全部三个随机种子上稳定通过 Gate A。
 - 假设与基线：`apis_only` 相对 `ce_only` 应同时满足 AUC 非劣、macro-F1 提升且敏感度/特异度不塌缩；`mixstyle` 作为辅助参照，不参与 APIS gate 的基线替换。
-- 实施依据：`review/01_dual_shift_next_step_decision_2026-07-29.md` 决定冻结 postfix 并先补齐 APIS 三种子；`review/02_dual_shift_experiment_schedule_2026-07-29.md` 预注册实验范围、命令和 Gate A；`review/04_dual_shift_remote_handoff_2026-07-29.md` 规定远程节点不得修改超参数或按目标域结果调参。
+- 实施依据：`review/plans/01_dual_shift_next_step_decision_2026-07-29.md` 决定冻结 postfix 并先补齐 APIS 三种子；`review/plans/02_dual_shift_experiment_schedule_2026-07-29.md` 预注册实验范围、命令和 Gate A；`review/operations/04_dual_shift_remote_handoff_2026-07-29.md` 规定远程节点不得修改超参数或按目标域结果调参。
 - 实验范围：CN vs AD；ADNI→NACC、NACC→ADNI；seeds 42、43、44；变体为 `ce_only`、`mixstyle`、`apis_only`。Windows 汇总包含三个 seeds；Linux 独立结果仅包含 seeds 43、44，不与 Windows 数值混合汇总。
 - 判定标准：每个 seed×direction 均须满足 `APIS AUC >= CE AUC - 0.01`、`APIS macro-F1 > CE macro-F1`、无 SEN/SPE collapse。双方向全部 3 seeds 通过才判 Gate A = Go；任一失败即 No-Go。
 
