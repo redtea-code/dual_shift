@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
@@ -150,6 +151,18 @@ def _overall_metrics(
     return metrics
 
 
+def _parse_folder_date(folder: object) -> tuple:
+    """Extract a sortable date token from folder names like ``ID-YYYY_MM_DD-…``."""
+    text = str(folder)
+    match = re.search(r"(20\d{2})[-_](\d{2})[-_](\d{2})", text)
+    if match:
+        return (int(match.group(1)), int(match.group(2)), int(match.group(3)), text)
+    match = re.search(r"(19\d{2})[-_](\d{2})[-_](\d{2})", text)
+    if match:
+        return (int(match.group(1)), int(match.group(2)), int(match.group(3)), text)
+    return (9999, 99, 99, text)
+
+
 def aggregate_subject_predictions(
     probabilities: Sequence,
     labels: Sequence[int],
@@ -158,15 +171,25 @@ def aggregate_subject_predictions(
     *,
     input_type: str = "auto",
     strategy: str = "mean_probability",
+    folders: Optional[Sequence[object]] = None,
+    label_conflict: str = "earliest_visit",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Aggregate scan-level predictions to one row per subject.
 
-    ``strategy='mean_probability'`` averages probabilities within a subject and
-    uses the majority label (ties broken by the first scan). Environment IDs
-    use the majority environment for that subject.
+    ``strategy='mean_probability'`` averages probabilities within a subject.
+    When a subject has multiple diagnostic labels across visits:
+    - ``label_conflict='earliest_visit'`` (default): keep only scans from the
+      earliest dated visit (folder date) that share one label; if that visit
+      still mixes labels, the subject is dropped.
+    - ``label_conflict='exclude'``: drop multi-label subjects.
+    - ``label_conflict='majority'``: legacy majority-label behavior (discouraged).
     """
     if strategy != "mean_probability":
         raise ValueError("Only strategy='mean_probability' is currently supported")
+    if label_conflict not in {"earliest_visit", "exclude", "majority"}:
+        raise ValueError(
+            "label_conflict must be 'earliest_visit', 'exclude', or 'majority'"
+        )
     probs = as_probabilities(probabilities, input_type=input_type)
     targets = np.asarray(labels, dtype=int).reshape(-1)
     subjects = np.asarray(subject_ids, dtype=object).reshape(-1)
@@ -175,8 +198,15 @@ def aggregate_subject_predictions(
         if environment_ids is None
         else np.asarray(environment_ids, dtype=object).reshape(-1)
     )
+    folder_arr = (
+        None
+        if folders is None
+        else np.asarray(folders, dtype=object).reshape(-1)
+    )
     if not (len(probs) == len(targets) == len(subjects) == len(environments)):
         raise ValueError("All inputs must have equal length")
+    if folder_arr is not None and len(folder_arr) != len(targets):
+        raise ValueError("folders must match prediction length")
     if len(probs) == 0:
         raise ValueError("Cannot aggregate empty predictions")
 
@@ -190,16 +220,56 @@ def aggregate_subject_predictions(
     agg_probs, agg_labels, agg_envs, agg_subjects = [], [], [], []
     for subject in unique_subjects:
         mask = subjects == subject
-        subject_probs = probs[mask].mean(axis=0)
+        subject_probs = probs[mask]
         subject_labels = targets[mask]
-        counts = np.bincount(subject_labels, minlength=probs.shape[1])
-        majority = int(np.argmax(counts))
-        env_values, env_counts = np.unique(environments[mask], return_counts=True)
+        subject_envs = environments[mask]
+        unique_labels = np.unique(subject_labels)
+        keep_mask = np.ones(len(subject_labels), dtype=bool)
+        if len(unique_labels) > 1:
+            if label_conflict == "majority":
+                counts = np.bincount(subject_labels, minlength=probs.shape[1])
+                majority = int(np.argmax(counts))
+                # Keep all scans but assign majority label after mean — legacy.
+                subject_labels = np.full_like(subject_labels, majority)
+            elif label_conflict == "exclude":
+                continue
+            else:  # earliest_visit
+                if folder_arr is None:
+                    # Without visit dates, refuse to invent a majority label.
+                    continue
+                subject_folders = folder_arr[mask]
+                dated = sorted(
+                    (
+                        _parse_folder_date(folder),
+                        int(index),
+                        int(subject_labels[index]),
+                    )
+                    for index, folder in enumerate(subject_folders.tolist())
+                )
+                earliest_date = dated[0][0][:3]
+                visit_indices = [
+                    index
+                    for date_key, index, _label in dated
+                    if date_key[:3] == earliest_date
+                ]
+                visit_labels = {int(subject_labels[index]) for index in visit_indices}
+                if len(visit_labels) != 1:
+                    continue
+                keep_mask = np.zeros(len(subject_labels), dtype=bool)
+                keep_mask[visit_indices] = True
+        subject_probs = subject_probs[keep_mask]
+        subject_labels = subject_labels[keep_mask]
+        subject_envs = subject_envs[keep_mask]
+        if len(subject_labels) == 0:
+            continue
+        env_values, env_counts = np.unique(subject_envs, return_counts=True)
         majority_env = env_values[int(np.argmax(env_counts))]
-        agg_probs.append(subject_probs)
-        agg_labels.append(majority)
+        agg_probs.append(subject_probs.mean(axis=0))
+        agg_labels.append(int(subject_labels[0]))
         agg_envs.append(majority_env)
         agg_subjects.append(subject)
+    if not agg_probs:
+        raise ValueError("No subjects remained after label-conflict aggregation")
     return (
         np.asarray(agg_probs, dtype=float),
         np.asarray(agg_labels, dtype=int),
@@ -273,6 +343,8 @@ def compute_journal_metrics(
     subject_ids: Optional[Sequence[object]] = None,
     aggregate: str = "none",
     positive_class: int = 1,
+    folders: Optional[Sequence[object]] = None,
+    label_conflict: str = "earliest_visit",
 ) -> Dict:
     """Compute overall and demographic-group publication metrics.
 
@@ -287,14 +359,17 @@ def compute_journal_metrics(
     if aggregate == "subject_mean":
         if subject_ids is None:
             raise ValueError("subject_ids are required for subject_mean aggregation")
-        probabilities, targets, environments, _ = aggregate_subject_predictions(
+        probabilities, targets, environments, kept_subjects = aggregate_subject_predictions(
             predictions,
             labels,
             subject_ids,
             environment_ids,
             input_type=input_type,
+            folders=folders,
+            label_conflict=label_conflict,
         )
         input_type = "probabilities"
+        subject_ids = kept_subjects
     else:
         probabilities = as_probabilities(predictions, input_type=input_type)
         targets = np.asarray(labels, dtype=int).reshape(-1)
@@ -318,6 +393,7 @@ def compute_journal_metrics(
         else int(result["n"])
     )
     result["aggregation"] = aggregate
+    result["label_conflict"] = label_conflict if aggregate == "subject_mean" else None
     result["per_group"] = {}
     if environments is None:
         result["worst_group_auc"] = float("nan")
@@ -357,6 +433,8 @@ def _prepare_bootstrap_rows(
     *,
     aggregate: str,
     cluster_by_subject: bool,
+    folders: Optional[np.ndarray] = None,
+    label_conflict: str = "earliest_visit",
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray], str]:
     """Collapse to subject rows before clustered resampling when requested."""
     if aggregate == "subject_mean":
@@ -368,6 +446,8 @@ def _prepare_bootstrap_rows(
             subjects,
             environments,
             input_type="probabilities",
+            folders=folders,
+            label_conflict=label_conflict,
         )
         return probs, labs, envs, subs, "none"
     if cluster_by_subject:
@@ -438,6 +518,9 @@ def bootstrap_confidence_intervals(
     cluster_by_subject: bool = True,
     aggregate: str = "subject_mean",
     positive_class: int = 1,
+    folders: Optional[Sequence[object]] = None,
+    label_conflict: str = "earliest_visit",
+    stratify_by_label: bool = True,
 ) -> Dict[str, Dict[str, float]]:
     """Return percentile bootstrap CIs.
 
@@ -445,6 +528,9 @@ def bootstrap_confidence_intervals(
     1. aggregate scans to one row per subject;
     2. resample those subject rows with replacement (duplicates retained);
     3. compute metrics on the resampled subject table without re-collapsing IDs.
+
+    When ``stratify_by_label=True`` (default), step 2 resamples within each
+    observed class so every bootstrap draw keeps both classes when possible.
     """
     probabilities = as_probabilities(predictions, input_type=input_type)
     targets = np.asarray(labels, dtype=int).reshape(-1)
@@ -458,12 +544,17 @@ def bootstrap_confidence_intervals(
         if subject_ids is None
         else np.asarray(subject_ids, dtype=object).reshape(-1)
     )
+    folder_arr = (
+        None if folders is None else np.asarray(folders, dtype=object).reshape(-1)
+    )
     if len(targets) != len(probabilities):
         raise ValueError("labels and predictions must have equal length")
     if environments is not None and len(environments) != len(targets):
         raise ValueError("environment_ids and labels must have equal length")
     if subjects is not None and len(subjects) != len(targets):
         raise ValueError("subject_ids and labels must have equal length")
+    if folder_arr is not None and len(folder_arr) != len(targets):
+        raise ValueError("folders must match prediction length")
     if cluster_by_subject and subjects is None:
         raise ValueError("subject_ids are required for cluster bootstrap")
     if n_bootstrap < 1 or not 0.0 < confidence < 1.0:
@@ -478,6 +569,8 @@ def bootstrap_confidence_intervals(
         subject_ids=subjects,
         aggregate=aggregate,
         positive_class=positive_class,
+        folders=folder_arr,
+        label_conflict=label_conflict,
     )
     unknown = set(metrics).difference(estimate)
     if unknown:
@@ -490,16 +583,34 @@ def bootstrap_confidence_intervals(
         subjects,
         aggregate=aggregate,
         cluster_by_subject=cluster_by_subject,
+        folders=folder_arr,
+        label_conflict=label_conflict,
     )
     samples = {name: [] for name in metrics}
     rng = np.random.default_rng(random_state)
+    class_index_pools = None
+    if stratify_by_label:
+        class_index_pools = {
+            int(label): np.flatnonzero(boot_labs == label)
+            for label in np.unique(boot_labs)
+        }
+        if any(len(pool) == 0 for pool in class_index_pools.values()):
+            class_index_pools = None
     for _ in range(n_bootstrap):
-        indices = _resample_row_indices(
-            len(boot_labs),
-            boot_subs,
-            rng,
-            cluster_by_subject=cluster_by_subject,
-        )
+        if class_index_pools is not None:
+            pieces = []
+            for label, pool in class_index_pools.items():
+                del label
+                pieces.append(rng.choice(pool, size=len(pool), replace=True))
+            indices = np.concatenate(pieces)
+            rng.shuffle(indices)
+        else:
+            indices = _resample_row_indices(
+                len(boot_labs),
+                boot_subs,
+                rng,
+                cluster_by_subject=cluster_by_subject,
+            )
         # Keep duplicate subject rows; do not re-aggregate by ID.
         boot = compute_journal_metrics(
             boot_probs[indices],
@@ -507,9 +618,10 @@ def bootstrap_confidence_intervals(
             None if boot_envs is None else boot_envs[indices],
             input_type="probabilities",
             ece_bins=ece_bins,
-            subject_ids=None,
+            subject_ids=None if boot_subs is None else boot_subs[indices],
             aggregate=boot_agg,
             positive_class=positive_class,
+            label_conflict="majority",
         )
         for name in metrics:
             samples[name].append(boot[name])

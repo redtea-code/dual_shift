@@ -1,4 +1,4 @@
-﻿"""Aggregate APIS v2 claim E1 metrics (primary: balanced_accuracy).
+"""Aggregate APIS v2 claim E1 metrics (primary: balanced_accuracy).
 
 Formal gate requires every preregistered seed and direction to be present.
 Paired bootstrap requires identical subject sets and labels (no silent
@@ -17,9 +17,11 @@ import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-VARIANTS = ("ce_only", "mixstyle", "metadata", "apis_v2")
+VARIANTS = ("ce_only", "mixstyle", "metadata", "metadata_xda", "apis_v2")
 DIRECTIONS = ("adni_to_nacc", "nacc_to_adni")
 PRIMARY = "balanced_accuracy"
+PRIMARY_BASELINES = ("mixstyle", "metadata_xda")
+REQUIRED_PROTOCOL_REVISION = 2
 KEYS = (
     "balanced_accuracy",
     "auc",
@@ -90,22 +92,22 @@ def _load_pred_table(
 
 
 def _subject_mean_table(subjects, folders, labels, probs):
-    unique = []
-    seen = set()
-    for subject in subjects.tolist():
-        if subject not in seen:
-            unique.append(subject)
-            seen.add(subject)
-    agg_probs, agg_labels, agg_subjects, agg_folders = [], [], [], []
-    for subject in unique:
+    from training.journal_metrics import aggregate_subject_predictions
+
+    agg_probs, agg_labels, _, agg_subjects = aggregate_subject_predictions(
+        probs,
+        labels,
+        subjects,
+        folders=folders,
+        label_conflict="earliest_visit",
+    )
+    # Deterministic folder token per kept subject (earliest visit already applied).
+    agg_folders = []
+    for subject in agg_subjects.tolist():
         mask = subjects == subject
-        agg_probs.append(probs[mask].mean(axis=0))
-        counts = np.bincount(labels[mask], minlength=probs.shape[1])
-        agg_labels.append(int(np.argmax(counts)))
-        # Deterministic folder token for alignment checks across variants.
-        folder_vals, folder_counts = np.unique(folders[mask], return_counts=True)
-        agg_folders.append(str(folder_vals[int(np.argmax(folder_counts))]))
-        agg_subjects.append(subject)
+        folder_vals = folders[mask]
+        dated = sorted((_parse_folder_date(f), str(f)) for f in folder_vals.tolist())
+        agg_folders.append(dated[0][1] if dated else "")
     return (
         np.asarray(agg_subjects, dtype=object),
         np.asarray(agg_folders, dtype=object),
@@ -114,10 +116,30 @@ def _subject_mean_table(subjects, folders, labels, probs):
     )
 
 
+def _parse_folder_date(folder: object):
+    from training.journal_metrics import _parse_folder_date as parse
+
+    return parse(folder)
+
+
 def _balanced_accuracy(labels: np.ndarray, probs: np.ndarray) -> float:
     from sklearn.metrics import balanced_accuracy_score
 
     return float(balanced_accuracy_score(labels, probs.argmax(axis=1)))
+
+
+def _stratified_subject_indices(labels: np.ndarray, rng: np.random.RandomState) -> np.ndarray:
+    pieces = []
+    for label in np.unique(labels):
+        pool = np.flatnonzero(labels == label)
+        if len(pool) == 0:
+            continue
+        pieces.append(rng.choice(pool, size=len(pool), replace=True))
+    if not pieces:
+        return rng.randint(0, len(labels), size=len(labels))
+    indices = np.concatenate(pieces)
+    rng.shuffle(indices)
+    return indices
 
 
 def _paired_delta_bootstrap(
@@ -145,9 +167,8 @@ def _paired_delta_bootstrap(
     point = _balanced_accuracy(lab_a, prob_a) - _balanced_accuracy(lab_a, prob_b)
     rng = np.random.RandomState(seed)
     boots = []
-    n = len(sub_a)
     for _ in range(n_bootstrap):
-        draw = rng.randint(0, n, size=n)
+        draw = _stratified_subject_indices(lab_a, rng)
         boots.append(
             _balanced_accuracy(lab_a[draw], prob_a[draw])
             - _balanced_accuracy(lab_a[draw], prob_b[draw])
@@ -156,9 +177,11 @@ def _paired_delta_bootstrap(
     return {
         "delta_balanced_accuracy": float(point),
         "ci95": [float(lo), float(hi)],
-        "n_subjects": int(n),
+        "n_subjects": int(len(sub_a)),
         "ci_excludes_zero": bool(lo > 0 or hi < 0),
         "positive_for_a": bool(point > 0 and lo > 0),
+        "bootstrap": "subject_stratified_by_label",
+        "aggregation": "earliest_visit",
     }
 
 
@@ -204,6 +227,11 @@ def main() -> None:
                 if metrics is None:
                     missing.append(f"seed{seed}/{direction}/{variant}")
                 else:
+                    if metrics.get("claim_protocol_revision") != REQUIRED_PROTOCOL_REVISION:
+                        missing.append(
+                            f"seed{seed}/{direction}/{variant}:stale_revision"
+                        )
+                        row["present"] = False
                     for key in KEYS:
                         row[key] = _metric(metrics, key)
                     for stratum in ("1.5T", "3T"):
@@ -215,6 +243,13 @@ def main() -> None:
                 paired[direction][f"seed{seed}_vs_mixstyle"] = _paired_delta_bootstrap(
                     run_dir / "apis_v2" / "target_predictions.csv",
                     run_dir / "mixstyle" / "target_predictions.csv",
+                    n_bootstrap=args.bootstrap,
+                    seed=seed,
+                )
+            if all(loaded.get(v) is not None for v in ("apis_v2", "metadata_xda")):
+                paired[direction][f"seed{seed}_vs_metadata_xda"] = _paired_delta_bootstrap(
+                    run_dir / "apis_v2" / "target_predictions.csv",
+                    run_dir / "metadata_xda" / "target_predictions.csv",
                     n_bootstrap=args.bootstrap,
                     seed=seed,
                 )
@@ -258,7 +293,7 @@ def main() -> None:
                     and key in r
                 ]
                 summary["aggregates"][direction][variant][key] = _mean_std(vals)
-        for baseline in ("mixstyle", "metadata"):
+        for baseline in PRIMARY_BASELINES:
             deltas = []
             for seed in seeds:
                 a = next(

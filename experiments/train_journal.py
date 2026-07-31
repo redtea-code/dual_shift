@@ -52,7 +52,10 @@ from Model.backbone.daft_backbone import resnet10_daft
 from Model.backbone.film_backbone import resnet10_film
 from Model.backbone.journal_resnet import journal_resnet10, journal_resnet18
 from Model.dual_shift import DualShiftResNet3D
-from Model.dual_shift.metadata_baseline import MetadataConcatBaseline
+from Model.dual_shift.metadata_baseline import (
+    MetadataConcatBaseline,
+    MetadataDemoAcqBaseline,
+)
 from training.dual_shift_loop import (
     initialize_dual_shift_controllers,
     run_dual_shift_epoch,
@@ -66,8 +69,13 @@ from training.journal_metrics import (
     save_json_summary,
 )
 from utils.claim_holdout import (
+    assert_index_sets_disjoint,
     assert_no_holdout_leak,
+    assert_no_subject_id_overlap,
+    eligible_subjects,
     filter_indices_excluding_subjects,
+    filter_indices_including_subjects,
+    holdout_file_sha256,
     load_holdout_subjects,
 )
 from utils.journal_protocol import (
@@ -87,6 +95,7 @@ VARIANT_STAGES = {
     "hyperfusion": "baselines",
     # Claim baseline: image + acquisition concat (no demographics).
     "metadata": "baselines",
+    "metadata_xda": "baselines",
     # Original Wave0 methods re-run under journal protocol (same split/cov3).
     "gamma": "gamma_concat",
     "concat": "gamma_concat",
@@ -112,6 +121,7 @@ VARIANT_DISPLAY = {
     "daft": "daft",
     "hyperfusion": "hyperfusion",
     "metadata": "metadata_acq_concat",
+    "metadata_xda": "metadata_xda_concat",
     "gamma": "gamma",
     "concat": "concat",
     "dual_dict_linear": "dual_dict_linear",
@@ -125,7 +135,7 @@ VARIANT_DISPLAY = {
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
-METADATA_VARIANTS = frozenset({"metadata"})
+METADATA_VARIANTS = frozenset({"metadata", "metadata_xda"})
 PATCH_GAMMA_VARIANTS = frozenset({"gamma"})
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
 DUAL_SHIFT_VARIANTS = frozenset(
@@ -194,14 +204,26 @@ def _split_source(
     val_ratio: float,
     test_ratio: float,
     seed: int,
+    *,
+    eligible_subject_ids: set[str] | None = None,
 ):
-    """Subject-level 6/2/2 (or configured) source split with optional stratification."""
+    """Subject-level 6/2/2 (or configured) source split with optional stratification.
+
+    When ``eligible_subject_ids`` is provided, hold-out / blocked subjects are
+    removed *before* the split so configured ratios apply to the final pool.
+    """
     ratios = np.asarray([train_ratio, val_ratio, test_ratio], dtype=float)
     if ratios.shape != (3,) or np.any(ratios <= 0) or not np.isclose(ratios.sum(), 1.0):
         raise ValueError(
             "train_ratio, val_ratio, and test_ratio must be positive and sum to 1"
         )
     subjects = np.unique(dataset.subject_ids)
+    if eligible_subject_ids is not None:
+        allowed = {str(item) for item in eligible_subject_ids}
+        subjects = np.asarray(
+            [subject for subject in subjects.tolist() if str(subject) in allowed],
+            dtype=object,
+        )
     if len(subjects) < 3:
         raise ValueError("Source dataset needs at least three subjects for 6/2/2 split")
     subject_labels = _subject_labels(dataset, subjects)
@@ -270,6 +292,7 @@ def _fit_protocol(
     environment_config,
     *,
     frozen_manifest=None,
+    target_indices=None,
 ):
     fitted_preprocessor = CovariatePreprocessor(
         scale_continuous=bool(environment_config.get("scale_continuous", True))
@@ -389,11 +412,15 @@ def _fit_protocol(
         subject_ids=source.subject_ids[test_indices],
         validate_no_train_overlap=True,
     )
-    target_indices = np.arange(len(target))
+    target_indices = (
+        np.arange(len(target))
+        if target_indices is None
+        else np.asarray(target_indices, dtype=int)
+    )
     target_raw = filled(target, target_indices)
     target_env = builder.transform(
         *target_raw,
-        subject_ids=target.subject_ids,
+        subject_ids=target.subject_ids[target_indices],
         validate_no_train_overlap=False,
     )
     return preprocessor, builder, train_env, val_env, test_env, target_env
@@ -520,6 +547,15 @@ def _make_model(config, num_classes, variant):
             acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
             dropout=float(model_config.get("dropout", 0.1)),
         )
+    if variant == "metadata_xda":
+        ds = config.get("dual_shift") or {}
+        return MetadataDemoAcqBaseline(
+            num_classes=num_classes,
+            base_channels=int(model_config.get("base_channels", 32)),
+            acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
+            fusion_rank=int(ds.get("fusion_rank", 16)),
+            dropout=float(model_config.get("dropout", 0.1)),
+        )
     if variant == "concat":
         from Model.comparison.factories import make_concat_fusion
 
@@ -612,7 +648,17 @@ def _run_epoch(
             elif variant in METADATA_VARIANTS:
                 if not isinstance(acquisitions, list):
                     raise RuntimeError("metadata variant requires acquisition rows")
-                logits = model(batch["image"], acquisitions)
+                if variant == "metadata_xda":
+                    logits = model(
+                        batch["image"],
+                        batch["covariates"],
+                        acquisitions,
+                        age_missing=batch.get("age_missing"),
+                        sex_missing=batch.get("sex_missing"),
+                        education_missing=batch.get("education_missing"),
+                    )
+                else:
+                    logits = model(batch["image"], acquisitions)
             else:
                 logits = _logits(model, batch, spatial, variant=variant)
             if dro is None:
@@ -827,6 +873,7 @@ def _selection_key(result, config, *, variant: str | None = None):
         input_type="logits",
         subject_ids=result["subjects"],
         aggregate=aggregate if aggregate != "none" else "subject_mean",
+        folders=result.get("folders"),
     )
     auc = float(subject_metrics["auc"])
     macro_f1 = float(subject_metrics.get("macro_f1") or 0.0)
@@ -1180,6 +1227,7 @@ def _train_variant(
             input_type="probabilities",
             subject_ids=result["subjects"],
             aggregate=aggregate,
+            folders=result.get("folders"),
         )
         ci = bootstrap_confidence_intervals(
             probabilities,
@@ -1191,6 +1239,7 @@ def _train_variant(
             subject_ids=result["subjects"],
             cluster_by_subject=cluster,
             aggregate=aggregate,
+            folders=result.get("folders"),
         )
         reports[split] = {
             "loss": result["loss"],
@@ -1232,6 +1281,17 @@ def _train_variant(
             ),
             "group_weights": None if dro is None else dro.group_weights.cpu().tolist(),
             "initialization_seed": int(config["seed"]),
+            "training_seed": int(config["seed"]),
+            "split_seed": int(
+                (config.get("claim") or {}).get(
+                    "split_seed", config.get("split_seed", config["seed"])
+                )
+            ),
+            "claim_protocol": (config.get("claim") or {}).get("protocol"),
+            "claim_protocol_revision": (config.get("claim") or {}).get(
+                "protocol_revision"
+            ),
+            "config_hash": _config_fingerprint(config),
         }
     )
     save_json_summary(variant_dir / "journal_metrics.json", reports)
@@ -1261,6 +1321,8 @@ def _manifest(
     preprocessor,
     builder,
     config,
+    *,
+    target_indices=None,
 ):
     def rows(dataset, indices, split, cohort):
         return [
@@ -1279,6 +1341,8 @@ def _manifest(
         return sorted(dataset.records[index]["folder"] for index in indices)
 
     source_name, target_name = direction.split("_to_")
+    if target_indices is None:
+        target_indices = list(range(len(target)))
     return {
         "direction": direction,
         "protocol": {
@@ -1292,6 +1356,12 @@ def _manifest(
             ),
         },
         "initialization_seed": int(config["seed"]),
+        "split_seed": int(
+            (config.get("claim") or {}).get(
+                "split_seed", config.get("split_seed", config["seed"])
+            )
+        ),
+        "training_seed": int(config["seed"]),
         "label_mapping": dict(source.label_mapping),
         "preprocessing_version": str(
             config.get("data", {}).get("preprocessing_version", "journal_v1")
@@ -1303,12 +1373,12 @@ def _manifest(
         "source_train_folders": folders(source, train_indices),
         "source_val_folders": folders(source, val_indices),
         "source_test_folders": folders(source, test_indices),
-        "target_subjects": sorted(set(target.subject_ids.tolist())),
-        "target_folders": folders(target, range(len(target))),
+        "target_subjects": sorted(set(target.subject_ids[target_indices].tolist())),
+        "target_folders": folders(target, target_indices),
         "samples": rows(source, train_indices, "source_train", source_name)
         + rows(source, val_indices, "source_val", source_name)
         + rows(source, test_indices, "source_test", source_name)
-        + rows(target, range(len(target)), "target", target_name),
+        + rows(target, target_indices, "target_e1", target_name),
         "covariate_preprocessor": preprocessor.to_dict(),
         "environment": builder.to_dict(),
         "dataset_fingerprint": {
@@ -1316,6 +1386,7 @@ def _manifest(
             "target_n": int(len(target)),
             "source_subjects": int(len(set(source.subject_ids.tolist()))),
             "target_subjects": int(len(set(target.subject_ids.tolist()))),
+            "e1_target_n": int(len(target_indices)),
         },
     }
 
@@ -1527,38 +1598,48 @@ def run(
     holdout_subjects: set[str] = set()
     holdout_path = claim_cfg.get("exclude_subjects_json")
     holdout_key = str(claim_cfg.get("exclude_subjects_key", "subjects_le_30d"))
+    holdout_sha = None
     if holdout_path:
         holdout_subjects = load_holdout_subjects(holdout_path, key=holdout_key)
+        holdout_sha = holdout_file_sha256(holdout_path)
+    split_seed = int(
+        claim_cfg.get(
+            "split_seed",
+            config.get("split_seed", config["seed"]),
+        )
+    )
+    training_seed = int(config["seed"])
+    eligible_source = (
+        eligible_subjects(source.subject_ids.tolist(), holdout_subjects)
+        if holdout_subjects
+        else None
+    )
     frozen_manifest = None
     if split_manifest:
         train_indices, val_indices, test_indices, frozen_manifest = _load_frozen_split(
             source, split_manifest
         )
+        if holdout_subjects:
+            for name, indices in (
+                ("train", train_indices),
+                ("val", val_indices),
+                ("test", test_indices),
+            ):
+                assert_no_holdout_leak(
+                    source.subject_ids, indices, holdout_subjects, split_name=name
+                )
     else:
+        # Exclude E3 paired subjects *before* 6/2/2 so ratios apply to the
+        # final eligible pool (fixed split_seed, independent of training_seed).
         train_indices, val_indices, test_indices = _split_source(
-            source, train_ratio, val_ratio, test_ratio, int(config["seed"])
+            source,
+            train_ratio,
+            val_ratio,
+            test_ratio,
+            split_seed,
+            eligible_subject_ids=eligible_source,
         )
     if holdout_subjects:
-        # Mechanism subjects must not enter train/val/selection; drop from all
-        # source splits. Target cohort may still contain them for E3 eval only.
-        train_indices = np.asarray(
-            filter_indices_excluding_subjects(
-                source.subject_ids, train_indices, holdout_subjects
-            ),
-            dtype=int,
-        )
-        val_indices = np.asarray(
-            filter_indices_excluding_subjects(
-                source.subject_ids, val_indices, holdout_subjects
-            ),
-            dtype=int,
-        )
-        test_indices = np.asarray(
-            filter_indices_excluding_subjects(
-                source.subject_ids, test_indices, holdout_subjects
-            ),
-            dtype=int,
-        )
         for name, indices in (
             ("train", train_indices),
             ("val", val_indices),
@@ -1574,6 +1655,50 @@ def run(
         source.subject_ids[val_indices],
         source.subject_ids[test_indices],
     )
+    all_target_indices = np.arange(len(target), dtype=int)
+    if holdout_subjects:
+        e1_target_indices = np.asarray(
+            filter_indices_excluding_subjects(
+                target.subject_ids, all_target_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
+        e3_paired_indices = np.asarray(
+            filter_indices_including_subjects(
+                target.subject_ids, all_target_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
+        assert_index_sets_disjoint(
+            target.subject_ids,
+            e1_target_indices,
+            e3_paired_indices,
+            left_name="e1_target",
+            right_name="e3_paired",
+        )
+        assert_no_holdout_leak(
+            target.subject_ids,
+            e1_target_indices,
+            holdout_subjects,
+            split_name="e1_target",
+        )
+        if len(e1_target_indices) == 0:
+            raise RuntimeError("hold-out exclusion emptied E1 target set")
+    else:
+        e1_target_indices = all_target_indices
+        e3_paired_indices = np.asarray([], dtype=int)
+    source_used_subjects = (
+        set(map(str, source.subject_ids[train_indices].tolist()))
+        | set(map(str, source.subject_ids[val_indices].tolist()))
+        | set(map(str, source.subject_ids[test_indices].tolist()))
+    )
+    e1_target_subjects = set(map(str, target.subject_ids[e1_target_indices].tolist()))
+    assert_no_subject_id_overlap(
+        source_used_subjects,
+        e1_target_subjects,
+        left_name="source_e1",
+        right_name="target_e1",
+    )
     preprocessor, builder, train_env, val_env, test_env, target_env = _fit_protocol(
         source,
         train_indices,
@@ -1582,15 +1707,16 @@ def run(
         target,
         config["environments"],
         frozen_manifest=frozen_manifest,
+        target_indices=e1_target_indices,
     )
     train_set = JournalSubset(source, train_indices, preprocessor, train_env)
     val_set = JournalSubset(source, val_indices, preprocessor, val_env)
     test_set = JournalSubset(source, test_indices, preprocessor, test_env)
-    target_set = JournalSubset(target, np.arange(len(target)), preprocessor, target_env)
+    target_set = JournalSubset(target, e1_target_indices, preprocessor, target_env)
     batch_size = int(config["training"]["batch_size"])
     if batch_size < 2:
         raise ValueError("training.batch_size must be >= 2 for BatchNorm stability")
-    generator = torch.Generator().manual_seed(int(config["seed"]))
+    generator = torch.Generator().manual_seed(training_seed)
     common = {"num_workers": int(config["training"]["num_workers"])}
     requested = [
         VARIANT_ALIASES.get(str(item), str(item))
@@ -1646,19 +1772,46 @@ def run(
         preprocessor,
         builder,
         config,
+        target_indices=e1_target_indices,
     )
+    n_train_subj = len(set(source.subject_ids[train_indices].tolist()))
+    n_val_subj = len(set(source.subject_ids[val_indices].tolist()))
+    n_test_subj = len(set(source.subject_ids[test_indices].tolist()))
+    n_split_subj = n_train_subj + n_val_subj + n_test_subj
     manifest["split_ratios"] = {
         "train": train_ratio,
         "val": val_ratio,
         "test": test_ratio,
     }
+    manifest["split_ratios_actual"] = {
+        "train": float(n_train_subj / n_split_subj) if n_split_subj else None,
+        "val": float(n_val_subj / n_split_subj) if n_split_subj else None,
+        "test": float(n_test_subj / n_split_subj) if n_split_subj else None,
+        "n_subjects": int(n_split_subj),
+    }
+    manifest["split_seed"] = int(split_seed)
+    manifest["training_seed"] = int(training_seed)
+    manifest["initialization_seed"] = int(training_seed)
     manifest["frozen_split_manifest"] = split_manifest
+    manifest["e1_target_subjects"] = sorted(e1_target_subjects)
+    manifest["e3_paired_subjects"] = sorted(
+        set(map(str, target.subject_ids[e3_paired_indices].tolist()))
+    )
+    manifest["e1_target_indices"] = [int(i) for i in e1_target_indices.tolist()]
+    manifest["e3_paired_indices"] = [int(i) for i in e3_paired_indices.tolist()]
+    # Keep legacy key pointing at E1 target only (claim-facing external set).
+    manifest["target_subjects"] = sorted(e1_target_subjects)
     manifest["claim_holdout"] = {
         "enabled": bool(holdout_subjects),
         "path": holdout_path,
         "key": holdout_key if holdout_path else None,
+        "sha256": holdout_sha,
         "n_excluded_subjects": int(len(holdout_subjects)),
         "excluded_subjects": sorted(holdout_subjects),
+        "exclude_before_split": True,
+        "e1_target_n_subjects": int(len(e1_target_subjects)),
+        "e3_paired_n_subjects": int(len(manifest["e3_paired_subjects"])),
+        "protocol_revision": claim_cfg.get("protocol_revision"),
     }
     manifest["match_audit"] = {
         "source": getattr(source, "match_audit", {}),
@@ -1687,9 +1840,19 @@ def run(
         metrics_path = Path(output_dir) / variant / "journal_metrics.json"
         if skip_existing and metrics_path.exists():
             with open(metrics_path, encoding="utf-8") as handle:
-                results[variant] = json.load(handle)
-            print(f"[journal] skip existing variant: {variant}", flush=True)
-            continue
+                existing = json.load(handle)
+            required_rev = claim_cfg.get("protocol_revision")
+            existing_rev = existing.get("claim_protocol_revision")
+            if required_rev is not None and existing_rev != required_rev:
+                print(
+                    f"[journal] refuse stale variant {variant}: "
+                    f"metrics revision={existing_rev!r} required={required_rev!r}",
+                    flush=True,
+                )
+            else:
+                results[variant] = existing
+                print(f"[journal] skip existing variant: {variant}", flush=True)
+                continue
         results[variant] = _train_variant(
             variant,
             config,
