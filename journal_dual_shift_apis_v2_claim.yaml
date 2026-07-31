@@ -1,7 +1,8 @@
 ﻿# APIS v2 claim E1 protocol (full budget).
 # Primary endpoint: subject-level balanced_accuracy vs MixStyle and metadata_xda.
 # Hold-out: paired <=30d subjects excluded BEFORE source 6/2/2 and from E1 target.
-# E3 paired indices are carved from target and never enter E1 metrics.
+# E3 paired indices are carved from whichever cohort contains the pair and
+# never enter E1 metrics; manifests store source/target indices separately.
 # Do not use smoke/ outputs or 6-epoch budgets for claim decisions.
 #
 # Wave-1 input axes (X=image, D=demographics, A=acquisition):

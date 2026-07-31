@@ -48,7 +48,7 @@
 
 - 研究问题：见 §0.1。
 - 假设与基线：
-  - **主比较**：APIS v2 vs **MixStyle** 与 vs **direct metadata conditioning**。
+  - **主比较**：APIS v2 vs **MixStyle** 与 vs **metadata_xda (X+D+A)**；A-only metadata 为补充对照。
   - CE、legacy AdaIN APIS、FiLM、unconditional residual、shuffle 等为必要对照/机制对照，**不能替代**上述两项主比较。
 - 实施依据：`10` + `APIS_V2_DATA_CONSTRAINED_DESIGN.md`；本地就绪与 smoke 见 `12`/`13`。
 - 实验范围：
@@ -60,14 +60,14 @@
 **E1 主终点（唯一通关标准）**
 
 - 指标：subject-level **balanced accuracy**（先按 subject 聚合扫描，再算指标）
-- 成功：在外部测试上，APIS v2 − MixStyle 与 APIS v2 − metadata 的差值均为正，且各自 95% **subject-level 配对 bootstrap CI 不含 0**
+- 成功：在外部测试上，APIS v2 − MixStyle 与 APIS v2 − metadata_xda 的差值均为正，且各自 95% **subject-level 配对 bootstrap CI 不含 0**
 - 次要：AUC、SEN、SPE、macro-F1、worst-class recall；如实报告，**不得**用次要指标覆盖主终点失败
 - Seeds：确认性至少 **5** 个固定种子（建议 `42,43,44,45,46`）
 - Checkpoint / 超参：**禁止**用 target 队列选择；仅 source validation
 
 **停止 / 收缩**
 
-- 主终点双侧（相对 MixStyle 与 metadata）在预注册种子上失败 → 不宣称 v2 claim；可保留机制/负结果文档
+- 主终点双侧（相对 MixStyle 与 metadata_xda）在预注册种子上失败 → 不宣称 v2 claim；可保留机制/负结果文档
 - 发现实现错误可修并完整重跑；**禁止** target-driven 调 APIS 强度、warmup、距离、损失权重
 
 ---
@@ -111,13 +111,13 @@ outputs/journal/dual_shift_apis_v2/
 |---|---|---|
 | C1 | 训练/划分读取 hold-out subject 列表并排除 | split 断言 + 单测 |
 | C2 | 评估主表输出 **balanced_accuracy**（subject_mean） | metrics JSON 含该字段 |
-| C3 | `metadata` 条件化基线（与 APIS 同 backbone/预算） | 可经 `--variants metadata` 或等价入口训练 |
+| C3 | `metadata_xda` 公平条件化基线（X+D+A；同 backbone/预算） | 可经 `--variants metadata_xda` 或等价入口训练 |
 | C4 | `film` 基线（已有工厂则接线到 journal dual-shift 公平协议） | 同上 |
 | C5 | `legacy_apis`（AdaIN）作为对照变体，**不**与 v2 混名 | 变体名不得再含糊叫 `apis_only` 而不标注版本 |
 | C6 | `uncond_residual`（参数量匹配、无协议条件） | 负对照/容量对照 |
 | C7 | `apis_v2_shuffle`（描述子打乱） | 机制负对照最小集 |
 | C8 | NACC→ADNI 报告按 ADNI 测试子集分 **1.5T / 3T** | 分层 metrics |
-| C9 | E1 汇总脚本：逐 seed、跨 seed mean±std、相对 MixStyle/metadata 的 Δ 与配对 bootstrap CI | 单一正式报告根 |
+| C9 | E1 汇总脚本：逐 seed、跨 seed mean±std、相对 MixStyle/metadata_xda 的 Δ 与配对 bootstrap CI | 单一正式报告根 |
 
 变体命名建议（冻结后不得改）：
 
@@ -150,7 +150,7 @@ apis_v2_shuffle      # 负对照（可先最小子集）
 
 **变体（E1 最小可判决集）**
 
-第一波（必须）：`ce_only`, `mixstyle`, `metadata`, `apis_v2`
+第一波（必须）：`ce_only`, `mixstyle`, `metadata`, `metadata_xda`, `apis_v2`
 
 | 配置 | 影像 \(X\) | 人口学 \(D\) | 采集参数 \(A\) | 融合/干预方式 |
 |---|---:|---:|---:|---|
@@ -170,7 +170,7 @@ apis_v2_shuffle      # 负对照（可先最小子集）
 **E1 Go（宣称性能主结论的最低条件）**
 
 - 两方向均完成 5 seeds，无未解释训练/checkpoint 失败  
-- 主终点相对 MixStyle **与** metadata 均满足 §1 的 CI 准则  
+- 主终点相对 MixStyle **与** metadata_xda 均满足 §1 的 CI 准则
 - 结论非单 seed 驱动（逐 seed 符号与均值一致）  
 - hold-out 排除断言全部通过  
 
@@ -180,7 +180,7 @@ apis_v2_shuffle      # 负对照（可先最小子集）
 
 - 集合：≤30d（主）、≤7d（敏感）、全 73（探索，校正时间间隔）  
 - 模型：E1 中 **未看见这些 subject** 的 checkpoint（通常取 ADNI 源训练的模型）  
-- 指标：跨场强 embedding 距离、\|Δp\|、预测一致/翻转、相对 CE/MixStyle/metadata 的配对改善；检查类间可分性未塌缩  
+- 指标：跨场强 embedding 距离、\|Δp\|、预测一致/翻转、相对 CE/MixStyle/metadata_xda 的配对改善；检查类间可分性未塌缩
 - 文字口径：复合协议变化下的一致性，**不是**场强因果效应  
 
 ### 3.3 负对照（机制）
@@ -199,8 +199,8 @@ apis_v2_shuffle      # 负对照（可先最小子集）
 
 ```text
 P0  协议冻结 + C1–C9 缺口闭合 + 指纹          ← 核心缺口已闭合；指纹待开跑前写
-P1  E1 第一波：双向 × 5 seeds × 4 变体
-    （ce_only, mixstyle, metadata, apis_v2）
+P1  E1 第一波：双向 × 5 seeds × 5 变体
+    （ce_only, mixstyle, metadata, metadata_xda, apis_v2）
 P1b 同步：E3 评估脚本对已完成 ADNI 源 ckpt 的配对集
 P2  E1 第二波对照：film, legacy_apis, uncond_residual
 P3  负对照 apis_v2_shuffle（最小 → 扩 seed）
@@ -226,7 +226,7 @@ C:\Anaconda3\envs\pytorch\python.exe experiments\run_apis_v2_claim_e1.py --devic
 若启动器未用，等价展开：
 
 ```text
-seeds 42..46 × {ADNI_to_NACC, NACC_to_ADNI} × {ce_only, mixstyle, metadata, apis_v2}
+seeds 42..46 × {ADNI_to_NACC, NACC_to_ADNI} × {ce_only, mixstyle, metadata, metadata_xda, apis_v2}
 --config_path journal_dual_shift_apis_v2_claim.yaml
 --output-dir outputs/journal/dual_shift_apis_v2/claim/e1/seed{S}/{direction}
 ```
@@ -262,10 +262,10 @@ C:\Anaconda3\envs\pytorch\python.exe experiments\report_apis_v2_claim_e1.py ^
 |---|---:|---:|---|---|
 | ce_only | 待跑 | 待跑 | 基线 | |
 | mixstyle | 待跑 | 待跑 | 主对照 1 | |
-| metadata | 待跑 | 待跑 | 主对照 2 | |
+| metadata_xda | 待跑 | 待跑 | 主对照 2（公平 X+D+A） | |
 | apis_v2 | 待跑 | 待跑 | 方法 | |
 | Δ(v2−mixstyle) | 待跑 + CI | — | 主判定之一 | |
-| Δ(v2−metadata) | 待跑 + CI | — | 主判定之一 | |
+| Δ(v2−metadata_xda) | 待跑 + CI | — | 主判定之一 | |
 
 ### 6.2 分析
 
@@ -288,7 +288,7 @@ C:\Anaconda3\envs\pytorch\python.exe experiments\report_apis_v2_claim_e1.py ^
 - [x] `journal_dual_shift_apis_v2_claim.yaml` 已冻结并归档  
 - [x] C1 hold-out 排除进划分 + 断言  
 - [x] C2 balanced_accuracy 进正式 metrics  
-- [x] C3 metadata 基线可跑（`X+A`，无人口学；GAP∥acquisition embedding）  
+- [x] C3 metadata_xda 基线可跑（`X+D+A`；metadata `X+A` 保留为补充对照）
 - [x] C5 变体命名区分：`apis_only`→`apis_v2`（residual）；`legacy_apis`（AdaIN）未在本分支接线  
 - [x] C8 反向 1.5T/3T 分层（`metrics_by_field_strength` + 预测 CSV `field_strength`）  
 - [x] C9 汇总与配对 bootstrap 脚本（`experiments/report_apis_v2_claim_e1.py`）  
@@ -310,7 +310,7 @@ C:\Anaconda3\envs\pytorch\python.exe experiments\report_apis_v2_claim_e1.py ^
 
 ## 附录 B：工作量粗估（单卡 3090 量级）
 
-- E1 第一波：2 方向 × 5 seeds × 4 变体 × ~1–1.5 h ≈ **40–60 h**  
+- E1 第一波：2 方向 × 5 seeds × 5 变体 × ~1–1.5 h ≈ **50–75 h**
 - 第二波 3 变体：再约 **30–45 h**  
 - E3 / 负对照：以评估与少量重训为主，远小于 E1  
 

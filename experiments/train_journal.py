@@ -890,11 +890,14 @@ def _selection_key(result, config, *, variant: str | None = None):
 
     ds = config.get("dual_shift") or {}
     guard = ds.get("collapse_guard") or {}
+    # Main claim variants must share checkpoint selection. Otherwise APIS and
+    # metadata_xda are compared after optimizing different validation rules.
+    claim_selection_variants = DUAL_SHIFT_VARIANTS | METADATA_VARIANTS
     apply_guard = bool(guard.get("enabled", True)) and (
-        variant in DUAL_SHIFT_VARIANTS if variant is not None else False
+        variant in claim_selection_variants if variant is not None else False
     )
     use_composite = bool(ds.get("use_composite_selection", True)) and (
-        variant in DUAL_SHIFT_VARIANTS if variant is not None else False
+        variant in claim_selection_variants if variant is not None else False
     )
     if not apply_guard:
         if use_composite:
@@ -1655,15 +1658,26 @@ def run(
         source.subject_ids[val_indices],
         source.subject_ids[test_indices],
     )
+    all_source_indices = np.arange(len(source), dtype=int)
     all_target_indices = np.arange(len(target), dtype=int)
+    source_e3_paired_indices = np.asarray([], dtype=int)
+    target_e3_paired_indices = np.asarray([], dtype=int)
     if holdout_subjects:
+        # The paired cohort may be source (ADNI -> NACC) or target
+        # (NACC -> ADNI). Preserve both sides explicitly for E3.
+        source_e3_paired_indices = np.asarray(
+            filter_indices_including_subjects(
+                source.subject_ids, all_source_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
         e1_target_indices = np.asarray(
             filter_indices_excluding_subjects(
                 target.subject_ids, all_target_indices, holdout_subjects
             ),
             dtype=int,
         )
-        e3_paired_indices = np.asarray(
+        target_e3_paired_indices = np.asarray(
             filter_indices_including_subjects(
                 target.subject_ids, all_target_indices, holdout_subjects
             ),
@@ -1672,7 +1686,7 @@ def run(
         assert_index_sets_disjoint(
             target.subject_ids,
             e1_target_indices,
-            e3_paired_indices,
+            target_e3_paired_indices,
             left_name="e1_target",
             right_name="e3_paired",
         )
@@ -1686,7 +1700,6 @@ def run(
             raise RuntimeError("hold-out exclusion emptied E1 target set")
     else:
         e1_target_indices = all_target_indices
-        e3_paired_indices = np.asarray([], dtype=int)
     source_used_subjects = (
         set(map(str, source.subject_ids[train_indices].tolist()))
         | set(map(str, source.subject_ids[val_indices].tolist()))
@@ -1716,7 +1729,6 @@ def run(
     batch_size = int(config["training"]["batch_size"])
     if batch_size < 2:
         raise ValueError("training.batch_size must be >= 2 for BatchNorm stability")
-    generator = torch.Generator().manual_seed(training_seed)
     common = {"num_workers": int(config["training"]["num_workers"])}
     requested = [
         VARIANT_ALIASES.get(str(item), str(item))
@@ -1726,7 +1738,7 @@ def run(
         (config.get("dual_shift") or {}).get("subject_balanced_sampler", True)
     ) and any(v in DUAL_SHIFT_VARIANTS or v == "ce_only" for v in requested)
     # Apply subject-balanced sampling for DualShift screening runs (incl. fair CE).
-    train_sampler = None
+    train_sampler_weights = None
     if use_subject_balance:
         subject_ids = [
             str(source.subject_ids[int(index)]) for index in train_set.indices
@@ -1735,22 +1747,30 @@ def run(
         for subject_id in subject_ids:
             counts[subject_id] = counts.get(subject_id, 0) + 1
         weights = [1.0 / counts[subject_id] for subject_id in subject_ids]
-        train_sampler = WeightedRandomSampler(
-            weights=weights,
-            num_samples=len(weights),
-            replacement=True,
-            generator=generator,
+        train_sampler_weights = weights
+
+    def make_train_loader():
+        # Recreate sampler state for every variant so all variants see the
+        # same subject-balanced sample sequence.
+        generator = torch.Generator().manual_seed(training_seed)
+        sampler = None
+        if train_sampler_weights is not None:
+            sampler = WeightedRandomSampler(
+                weights=train_sampler_weights,
+                num_samples=len(train_sampler_weights),
+                replacement=True,
+                generator=generator,
+            )
+        return DataLoader(
+            train_set,
+            batch_size=batch_size,
+            shuffle=sampler is None,
+            sampler=sampler,
+            generator=generator if sampler is None else None,
+            drop_last=len(train_set) >= batch_size,
+            collate_fn=journal_collate,
+            **common,
         )
-    train_loader = DataLoader(
-        train_set,
-        batch_size=batch_size,
-        shuffle=train_sampler is None,
-        sampler=train_sampler,
-        generator=generator if train_sampler is None else None,
-        drop_last=len(train_set) >= batch_size,
-        collate_fn=journal_collate,
-        **common,
-    )
     eval_batch = int(config["training"]["eval_batch_size"])
     val_loader = DataLoader(
         val_set, batch_size=eval_batch, collate_fn=journal_collate, **common
@@ -1794,11 +1814,25 @@ def run(
     manifest["initialization_seed"] = int(training_seed)
     manifest["frozen_split_manifest"] = split_manifest
     manifest["e1_target_subjects"] = sorted(e1_target_subjects)
-    manifest["e3_paired_subjects"] = sorted(
-        set(map(str, target.subject_ids[e3_paired_indices].tolist()))
-    )
+    manifest["e3_paired_subjects_by_cohort"] = {
+        source_name: sorted(
+            set(map(str, source.subject_ids[source_e3_paired_indices].tolist()))
+        ),
+        target_name: sorted(
+            set(map(str, target.subject_ids[target_e3_paired_indices].tolist()))
+        ),
+    }
+    manifest["e3_paired_indices_by_cohort"] = {
+        source_name: [int(i) for i in source_e3_paired_indices.tolist()],
+        target_name: [int(i) for i in target_e3_paired_indices.tolist()],
+    }
+    manifest["source_e3_paired_indices"] = [
+        int(i) for i in source_e3_paired_indices.tolist()
+    ]
+    manifest["target_e3_paired_indices"] = [
+        int(i) for i in target_e3_paired_indices.tolist()
+    ]
     manifest["e1_target_indices"] = [int(i) for i in e1_target_indices.tolist()]
-    manifest["e3_paired_indices"] = [int(i) for i in e3_paired_indices.tolist()]
     # Keep legacy key pointing at E1 target only (claim-facing external set).
     manifest["target_subjects"] = sorted(e1_target_subjects)
     manifest["claim_holdout"] = {
@@ -1810,7 +1844,10 @@ def run(
         "excluded_subjects": sorted(holdout_subjects),
         "exclude_before_split": True,
         "e1_target_n_subjects": int(len(e1_target_subjects)),
-        "e3_paired_n_subjects": int(len(manifest["e3_paired_subjects"])),
+        "e3_paired_n_subjects_by_cohort": {
+            cohort: len(subjects)
+            for cohort, subjects in manifest["e3_paired_subjects_by_cohort"].items()
+        },
         "protocol_revision": claim_cfg.get("protocol_revision"),
     }
     manifest["match_audit"] = {
@@ -1856,7 +1893,7 @@ def run(
         results[variant] = _train_variant(
             variant,
             config,
-            train_loader,
+            make_train_loader(),
             val_loader,
             test_loader,
             target_loader,

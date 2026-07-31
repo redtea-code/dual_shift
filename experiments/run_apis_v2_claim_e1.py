@@ -107,6 +107,16 @@ def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
         elif isinstance(hold, dict) and isinstance(hold.get("subjects"), list):
             holdout_count = len(hold["subjects"])
 
+    scan_manifest_hashes = {}
+    scan_cfg = payload.get("scan_manifest") or {}
+    scan_root = Path(str(scan_cfg.get("root") or ""))
+    for cohort, filename in (scan_cfg.get("files") or {}).items():
+        manifest_path = scan_root / str(filename)
+        scan_manifest_hashes[str(cohort)] = {
+            "path": str(manifest_path),
+            "sha256": _sha256_file(manifest_path) if manifest_path.exists() else None,
+        }
+
     torch_info = {}
     try:
         import torch
@@ -137,6 +147,7 @@ def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
         "holdout_json": str(holdout_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
         "holdout_sha256": holdout_sha,
         "holdout_subject_count": holdout_count,
+        "scan_manifests": scan_manifest_hashes,
         "torch": torch_info,
         "claim_protocol": claim.get("protocol"),
         "claim_protocol_revision": claim.get("protocol_revision"),
@@ -153,13 +164,31 @@ def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
     return out
 
 
-def _job_complete(output_dir: Path, *, protocol_revision: int) -> bool:
+def _config_fingerprint(payload: dict) -> str:
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _job_complete(
+    output_dir: Path,
+    *,
+    protocol_revision: int,
+    expected_config_hash: str,
+    split_seed: int,
+    training_seed: int,
+) -> bool:
     for variant in VARIANTS:
         metrics_path = output_dir / variant / "journal_metrics.json"
         if not metrics_path.exists():
             return False
         payload = json.loads(metrics_path.read_text(encoding="utf-8"))
         if payload.get("claim_protocol_revision") != protocol_revision:
+            return False
+        if payload.get("config_hash") != expected_config_hash:
+            return False
+        if payload.get("split_seed") != split_seed:
+            return False
+        if payload.get("training_seed") != training_seed:
             return False
     return True
 
@@ -234,8 +263,19 @@ def main() -> None:
         for direction, slug in DIRECTIONS:
             output_dir = PROJECT_ROOT / CLAIM_ROOT / "e1" / f"seed{seed}" / slug
             label = f"seed{seed}/{slug}"
+            seeded_payload = json.loads(json.dumps(payload))
+            seeded_payload["seed"] = int(seed)
+            split_seed = int(
+                (seeded_payload.get("claim") or {}).get(
+                    "split_seed", seeded_payload.get("split_seed", seed)
+                )
+            )
             if (not force) and _job_complete(
-                output_dir, protocol_revision=REQUIRED_PROTOCOL_REVISION
+                output_dir,
+                protocol_revision=REQUIRED_PROTOCOL_REVISION,
+                expected_config_hash=_config_fingerprint(seeded_payload),
+                split_seed=split_seed,
+                training_seed=int(seed),
             ):
                 print(f"[claim-e1] SKIP complete {label}", flush=True)
                 skipped += 1

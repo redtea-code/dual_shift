@@ -212,10 +212,40 @@ def main() -> None:
     rows = []
     paired = {d: {} for d in DIRECTIONS}
     missing = []
+    split_signatures = {}
     for seed in seeds:
         for direction in DIRECTIONS:
             run_dir = args.seed_root / f"seed{seed}" / direction
             loaded = {v: _load_variant(run_dir, v) for v in VARIANTS}
+            manifest_path = run_dir / "split_manifest.json"
+            manifest = None
+            if manifest_path.exists():
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                signature = json.dumps(
+                    {
+                        "source_train_subjects": manifest.get("source_train_subjects"),
+                        "source_val_subjects": manifest.get("source_val_subjects"),
+                        "source_test_subjects": manifest.get("source_test_subjects"),
+                        "e1_target_subjects": manifest.get("e1_target_subjects"),
+                        "split_seed": manifest.get("split_seed"),
+                        "holdout_sha256": (manifest.get("claim_holdout") or {}).get(
+                            "sha256"
+                        ),
+                        "dataset_fingerprint": manifest.get("dataset_fingerprint"),
+                    },
+                    sort_keys=True,
+                )
+                prior = split_signatures.setdefault(direction, signature)
+                if signature != prior:
+                    missing.append(f"seed{seed}/{direction}:split_mismatch")
+            else:
+                missing.append(f"seed{seed}/{direction}:missing_split_manifest")
+            expected_config_hash = manifest.get("config_hash") if manifest else None
+            expected_target = (
+                set(map(str, manifest.get("e1_target_subjects", [])))
+                if manifest
+                else None
+            )
             for variant in VARIANTS:
                 metrics = loaded[variant]
                 row = {
@@ -231,6 +261,20 @@ def main() -> None:
                         missing.append(
                             f"seed{seed}/{direction}/{variant}:stale_revision"
                         )
+                        row["present"] = False
+                    if expected_config_hash is None or metrics.get("config_hash") != expected_config_hash:
+                        missing.append(f"seed{seed}/{direction}/{variant}:config_mismatch")
+                        row["present"] = False
+                    if manifest is None or metrics.get("split_seed") != manifest.get("split_seed"):
+                        missing.append(f"seed{seed}/{direction}/{variant}:split_seed_mismatch")
+                        row["present"] = False
+                    pred_path = run_dir / variant / "target_predictions.csv"
+                    pred = _load_pred_table(pred_path)
+                    if pred is None:
+                        missing.append(f"seed{seed}/{direction}/{variant}:missing_target_predictions")
+                        row["present"] = False
+                    elif expected_target is not None and set(map(str, pred[0].tolist())) != expected_target:
+                        missing.append(f"seed{seed}/{direction}/{variant}:target_subject_mismatch")
                         row["present"] = False
                     for key in KEYS:
                         row[key] = _metric(metrics, key)
