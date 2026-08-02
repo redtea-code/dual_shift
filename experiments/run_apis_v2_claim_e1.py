@@ -1,8 +1,12 @@
 """Launch APIS v2 claim E1 wave-1 jobs.
 
 Variants: ce_only / mixstyle / metadata / metadata_xda / apis_v2.
-Outputs are forced under outputs/journal/dual_shift_apis_v2/claim/e1/.
-Smoke trees are refused. Max workers hard-capped at 2.
+Outputs are forced under outputs/journal/dual_shift_apis_v2/claim*/e1/.
+Smoke trees are refused. Max workers hard-capped at 3.
+
+Uses a GPU slot queue: each concurrent job pins CUDA_VISIBLE_DEVICES to one
+slot; when a job finishes the slot is returned and the next queued job starts
+automatically (ThreadPoolExecutor).
 
 Protocol revision 2: exclude hold-out before split, carve E1 target vs E3,
 fixed split_seed, fair metadata_xda baseline. Default --force so stale
@@ -16,6 +20,7 @@ import hashlib
 import json
 import os
 import platform
+import queue
 import shutil
 import subprocess
 import sys
@@ -30,7 +35,7 @@ DIRECTIONS = (("ADNI_to_NACC", "adni_to_nacc"), ("NACC_to_ADNI", "nacc_to_adni")
 VARIANTS = ("ce_only", "mixstyle", "metadata", "metadata_xda", "apis_v2")
 # Allowed claim trees: .../claim or task-specific .../claim_<task> (e.g. claim_mci_ad).
 CLAIM_ROOT_PREFIX = "outputs/journal/dual_shift_apis_v2/claim"
-MAX_WORKERS_HARD_CAP = 2
+MAX_WORKERS_HARD_CAP = 3
 REQUIRED_PROTOCOL_REVISION = 2
 
 
@@ -172,6 +177,7 @@ def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
         "variants": list(VARIANTS),
         "seeds_default": [42, 43, 44, 45, 46],
         "max_workers_hard_cap": MAX_WORKERS_HARD_CAP,
+        "gpu_slot_queue": True,
     }
     out = claim_dir / "env_fingerprint.json"
     out.write_text(json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8")
@@ -208,16 +214,39 @@ def _job_complete(
     return True
 
 
-def _run_one_job(job: dict) -> dict:
+def _parse_gpu_ids(raw: str, max_workers: int) -> list[int]:
+    ids = [int(x) for x in str(raw).split(",") if str(x).strip() != ""]
+    if not ids:
+        raise SystemExit("--gpu-ids must list at least one GPU index")
+    if len(ids) < max_workers:
+        raise SystemExit(
+            f"--gpu-ids has {len(ids)} entries but --max-workers={max_workers}"
+        )
+    return ids[:max_workers]
+
+
+def _run_one_job(job: dict, gpu_slots: "queue.Queue[int]") -> dict:
     cmd = job["cmd"]
     label = job["label"]
-    print(f"[claim-e1] START {label}", flush=True)
+    gpu_id = gpu_slots.get()
+    env = {**cmd["env"], "CUDA_VISIBLE_DEVICES": str(gpu_id)}
+    print(
+        f"[claim-e1] START {label} (CUDA_VISIBLE_DEVICES={gpu_id})",
+        flush=True,
+    )
     t0 = time.time()
-    code = subprocess.call(cmd["argv"], cwd=cmd["cwd"], env=cmd["env"])
+    try:
+        code = subprocess.call(cmd["argv"], cwd=cmd["cwd"], env=env)
+    finally:
+        gpu_slots.put(gpu_id)
     elapsed = time.time() - t0
     status = "ok" if code == 0 else f"exit={code}"
-    print(f"[claim-e1] DONE  {label} ({status}, {elapsed/60:.1f} min)", flush=True)
-    return {"label": label, "code": code, "elapsed_sec": elapsed}
+    print(
+        f"[claim-e1] DONE  {label} ({status}, {elapsed/60:.1f} min, "
+        f"freed gpu={gpu_id})",
+        flush=True,
+    )
+    return {"label": label, "code": code, "elapsed_sec": elapsed, "gpu_id": gpu_id}
 
 
 def main() -> None:
@@ -243,8 +272,14 @@ def main() -> None:
     parser.add_argument(
         "--max-workers",
         type=int,
-        default=2,
+        default=3,
         help=f"Concurrent (seed,direction) jobs; hard-capped at {MAX_WORKERS_HARD_CAP}",
+    )
+    parser.add_argument(
+        "--gpu-ids",
+        default="0,1,2",
+        help="Comma-separated physical GPU indices for the worker slots "
+        "(length must be >= max-workers; extras ignored)",
     )
     parser.add_argument(
         "--fingerprint-only",
@@ -261,6 +296,7 @@ def main() -> None:
             flush=True,
         )
         args.max_workers = MAX_WORKERS_HARD_CAP
+    gpu_ids = _parse_gpu_ids(args.gpu_ids, args.max_workers)
 
     config_path = Path(args.config_path)
     if not config_path.is_absolute():
@@ -328,16 +364,22 @@ def main() -> None:
 
     print(
         f"[claim-e1] queue={len(jobs)} skipped={skipped} "
-        f"max_workers={args.max_workers} force={force}",
+        f"max_workers={args.max_workers} gpu_ids={gpu_ids} force={force}",
         flush=True,
     )
     if not jobs:
         print("[claim-e1] nothing to run", flush=True)
         return
 
+    gpu_slots: queue.Queue[int] = queue.Queue()
+    for gpu_id in gpu_ids:
+        gpu_slots.put(int(gpu_id))
+
     failures = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_workers) as pool:
-        futures = [pool.submit(_run_one_job, job) for job in jobs]
+        futures = [
+            pool.submit(_run_one_job, job, gpu_slots) for job in jobs
+        ]
         for fut in concurrent.futures.as_completed(futures):
             result = fut.result()
             if result["code"] != 0:
