@@ -47,15 +47,13 @@ from data.journal_dataset import (
     JournalSubset,
     build_journal_dataset,
 )
-from Model.backbone.backdoor_backbone import resnet10_backdoor
-from Model.backbone.daft_backbone import resnet10_daft
-from Model.backbone.film_backbone import resnet10_film
 from Model.backbone.journal_resnet import journal_resnet10, journal_resnet18
 from Model.dual_shift import DualShiftResNet3D
 from Model.dual_shift.metadata_baseline import (
     MetadataConcatBaseline,
     MetadataDemoAcqBaseline,
 )
+# film / daft / backdoor need optional Model.causal; import lazily in builders.
 from training.dual_shift_loop import (
     initialize_dual_shift_controllers,
     run_dual_shift_epoch,
@@ -515,6 +513,8 @@ def _make_model(config, num_classes, variant):
         return model
 
     if variant == "film":
+        from Model.backbone.film_backbone import resnet10_film
+
         return resnet10_film(
             txt_dim=covariate_dim,
             num_classes=num_classes,
@@ -522,6 +522,8 @@ def _make_model(config, num_classes, variant):
             feature=False,
         )
     if variant == "daft":
+        from Model.backbone.daft_backbone import resnet10_daft
+
         return resnet10_daft(
             txt_dim=covariate_dim,
             num_classes=num_classes,
@@ -578,6 +580,8 @@ def _make_model(config, num_classes, variant):
         input_shape = tuple(
             int(v) for v in baseline_cfg.get("gamma_input_shape", (160, 196, 160))
         )
+        from Model.backbone.backdoor_backbone import resnet10_backdoor
+
         return resnet10_backdoor(
             txt_dim=covariate_dim,
             num_classes=num_classes,
