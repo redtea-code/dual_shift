@@ -7,6 +7,7 @@ from experiments.run_apis_v2_claim_e1 import (
     _config_fingerprint,
     _job_complete,
     _normalize_claim_root,
+    _parse_variants,
 )
 
 
@@ -29,6 +30,15 @@ class ClaimRootNormalizationTest(unittest.TestCase):
 
 
 class ClaimLauncherIdentityTest(unittest.TestCase):
+    def test_exploratory_variants_must_be_frozen_in_config(self):
+        payload = {"variants": ["ce_only", "film_scan", "apis_scan"]}
+        self.assertEqual(
+            _parse_variants("ce_only,film_scan,apis_scan", payload),
+            ("ce_only", "film_scan", "apis_scan"),
+        )
+        with self.assertRaises(SystemExit):
+            _parse_variants("apis_v2_shuffle", payload)
+
     def test_job_complete_requires_full_identity_match(self):
         config = {"seed": 42, "claim": {"protocol_revision": 2, "split_seed": 7}}
         config_hash = _config_fingerprint(config)

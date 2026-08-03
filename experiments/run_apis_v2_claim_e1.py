@@ -33,6 +33,8 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DIRECTIONS = (("ADNI_to_NACC", "adni_to_nacc"), ("NACC_to_ADNI", "nacc_to_adni"))
 VARIANTS = ("ce_only", "mixstyle", "metadata", "metadata_xda", "apis_v2")
+EXPLORATORY_VARIANTS = ("apis_v2_shuffle", "film_scan", "apis_scan")
+ALLOWED_VARIANTS = frozenset(VARIANTS + EXPLORATORY_VARIANTS)
 # Allowed claim trees: .../claim or task-specific .../claim_<task> (e.g. claim_mci_ad).
 CLAIM_ROOT_PREFIX = "outputs/journal/dual_shift_apis_v2/claim"
 MAX_WORKERS_HARD_CAP = 3
@@ -85,6 +87,22 @@ def _validate_claim_config(path: Path) -> dict:
     return payload
 
 
+def _parse_variants(raw: str, payload: dict) -> tuple[str, ...]:
+    requested = tuple(item.strip() for item in str(raw).split(",") if item.strip())
+    if not requested:
+        raise SystemExit("--variants must contain at least one variant")
+    unknown = set(requested).difference(ALLOWED_VARIANTS)
+    if unknown:
+        raise SystemExit(f"unsupported claim variants: {sorted(unknown)}")
+    configured = set(payload.get("variants") or [])
+    missing = set(requested).difference(configured)
+    if missing:
+        raise SystemExit(
+            f"requested variants are not frozen in config: {sorted(missing)}"
+        )
+    return requested
+
+
 def _git_head() -> str:
     try:
         out = subprocess.check_output(
@@ -98,7 +116,9 @@ def _git_head() -> str:
         return "unknown"
 
 
-def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
+def write_env_fingerprint(
+    config_path: Path, payload: dict, *, variants: tuple[str, ...] = VARIANTS
+) -> Path:
     claim_root = _normalize_claim_root(str(payload.get("output_root") or ""))
     claim_dir = PROJECT_ROOT / claim_root
     claim_dir.mkdir(parents=True, exist_ok=True)
@@ -174,7 +194,7 @@ def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
         "split_seed": claim.get("split_seed", payload.get("split_seed")),
         "primary_metric": claim.get("primary_metric"),
         "primary_baselines": claim.get("primary_baselines"),
-        "variants": list(VARIANTS),
+        "variants": list(variants),
         "seeds_default": [42, 43, 44, 45, 46],
         "max_workers_hard_cap": MAX_WORKERS_HARD_CAP,
         "gpu_slot_queue": True,
@@ -197,8 +217,9 @@ def _job_complete(
     expected_config_hash: str,
     split_seed: int,
     training_seed: int,
+    variants: tuple[str, ...] = VARIANTS,
 ) -> bool:
-    for variant in VARIANTS:
+    for variant in variants:
         metrics_path = output_dir / variant / "journal_metrics.json"
         if not metrics_path.exists():
             return False
@@ -270,6 +291,12 @@ def main() -> None:
     )
     parser.add_argument("--seeds", default="42,43,44,45,46")
     parser.add_argument(
+        "--variants",
+        default=",".join(VARIANTS),
+        help="Comma-separated frozen variants. Exploratory options: "
+        + ",".join(EXPLORATORY_VARIANTS),
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=3,
@@ -302,8 +329,9 @@ def main() -> None:
     if not config_path.is_absolute():
         config_path = PROJECT_ROOT / config_path
     payload = _validate_claim_config(config_path)
+    variants = _parse_variants(args.variants, payload)
     claim_root = _normalize_claim_root(str(payload.get("output_root") or ""))
-    write_env_fingerprint(config_path, payload)
+    write_env_fingerprint(config_path, payload, variants=variants)
     if args.fingerprint_only:
         return
 
@@ -328,6 +356,7 @@ def main() -> None:
                 expected_config_hash=_config_fingerprint(seeded_payload),
                 split_seed=split_seed,
                 training_seed=int(seed),
+                variants=variants,
             ):
                 print(f"[claim-e1] SKIP complete {label}", flush=True)
                 skipped += 1
@@ -343,7 +372,7 @@ def main() -> None:
                 "--direction",
                 direction,
                 "--variants",
-                *VARIANTS,
+                *variants,
                 "--seed",
                 str(seed),
                 "--device",

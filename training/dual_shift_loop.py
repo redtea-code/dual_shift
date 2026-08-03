@@ -56,6 +56,14 @@ def phase_schedule(epoch: int, config: Mapping, *, variant: str | None = None) -
             "update_prototypes": False,
             "phase": "mixstyle",
         }
+    if variant == "film_scan":
+        return {
+            "apis_active": False,
+            "cdt_enabled": False,
+            "alpha": 0.0,
+            "update_prototypes": False,
+            "phase": "scan_film",
+        }
     if variant == "cdt_only":
         # Align budget with DualShift: uniform through clean+APIS warm-up epochs,
         # enable CDT only when DualShift would enter the joint phase.

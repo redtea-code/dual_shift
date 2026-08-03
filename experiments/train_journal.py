@@ -106,6 +106,8 @@ VARIANT_STAGES = {
     "apis_only": "dual_shift",  # legacy alias → residual APIS v2 behavior
     "apis_v2": "dual_shift",
     "apis_v2_shuffle": "dual_shift",
+    "film_scan": "dual_shift",
+    "apis_scan": "dual_shift",
     "mixstyle": "dual_shift",
 }
 
@@ -129,6 +131,8 @@ VARIANT_DISPLAY = {
     "apis_only": "apis_v2",
     "apis_v2": "apis_v2",
     "apis_v2_shuffle": "apis_v2_shuffle",
+    "film_scan": "film_scan",
+    "apis_scan": "apis_scan",
     "mixstyle": "mixstyle",
 }
 
@@ -137,7 +141,10 @@ METADATA_VARIANTS = frozenset({"metadata", "metadata_xda"})
 PATCH_GAMMA_VARIANTS = frozenset({"gamma"})
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
 DUAL_SHIFT_VARIANTS = frozenset(
-    {"dual_shift", "cdt_only", "apis_only", "apis_v2", "apis_v2_shuffle", "mixstyle"}
+    {
+        "dual_shift", "cdt_only", "apis_only", "apis_v2", "apis_v2_shuffle",
+        "mixstyle", "film_scan", "apis_scan",
+    }
 )
 JOURNAL_SPATIAL_VARIANTS = frozenset({"spatial", "spatial_groupdro"})
 JOURNAL_BACKBONE_VARIANTS = frozenset(
@@ -492,7 +499,9 @@ def _make_model(config, num_classes, variant):
     if variant in DUAL_SHIFT_VARIANTS:
         ds = config.get("dual_shift") or {}
         model_config = config["model"]
-        use_apis = variant in {"dual_shift", "apis_only", "apis_v2", "apis_v2_shuffle"}
+        use_apis = variant in {
+            "dual_shift", "apis_only", "apis_v2", "apis_v2_shuffle", "apis_scan"
+        }
         model = DualShiftResNet3D(
             num_classes=num_classes,
             base_channels=int(model_config.get("base_channels", 32)),
@@ -508,6 +517,8 @@ def _make_model(config, num_classes, variant):
             mixstyle_p=float(ds.get("mixstyle_p", 0.5)),
             mixstyle_alpha=float(ds.get("mixstyle_alpha", 0.1)),
             prototype_min_subjects=int(ds.get("prototype_min_subjects", 8)),
+            use_scan_film=variant in {"film_scan", "apis_scan"},
+            scan_film_alpha=float(ds.get("scan_film_alpha", 0.1)),
         )
         model.shuffle_acquisition = bool(variant == "apis_v2_shuffle")
         return model

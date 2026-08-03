@@ -85,6 +85,27 @@ class APISModuleTest(unittest.TestCase):
         torch.testing.assert_close(condition[:, -4:], target - factual)
 
 
+class BoundedAcquisitionFiLMTest(unittest.TestCase):
+    def test_starts_as_identity_and_is_bounded(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+        from Model.dual_shift.model import BoundedAcquisitionFiLM  # noqa: WPS433
+
+        module = BoundedAcquisitionFiLM(4, 8, alpha=0.1)
+        features = torch.randn(3, 8, 3, 3, 3)
+        embedding = torch.randn(3, 4)
+        identity, strength = module(features, embedding)
+        torch.testing.assert_close(identity, features)
+        self.assertTrue(torch.allclose(strength, torch.zeros_like(strength)))
+
+        with torch.no_grad():
+            module.controller.bias.fill_(8.0)
+        shifted, strength = module(features, embedding)
+        self.assertTrue(torch.all(strength <= 0.21))
+        self.assertFalse(torch.allclose(shifted, features))
+
+
 class ProtocolBankTest(unittest.TestCase):
     def _bank(self):
         bank = ProtocolPrototypeBank(min_subjects=1)

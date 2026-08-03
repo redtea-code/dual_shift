@@ -19,6 +19,35 @@ from Model.dual_shift.outputs import DualShiftOutput
 from Model.dual_shift.protocol_prototypes import ProtocolPrototypeBank
 
 
+class BoundedAcquisitionFiLM(nn.Module):
+    """Source-fitted acquisition conditioning with bounded feature modulation."""
+
+    def __init__(self, acquisition_dim: int, feature_dim: int, alpha: float = 0.1):
+        super().__init__()
+        self.alpha = float(max(0.0, alpha))
+        self.controller = nn.Linear(int(acquisition_dim), int(feature_dim) * 2)
+        # Start exactly at the identity so the conditioning path cannot create a
+        # chance performance jump before it receives gradient evidence.
+        nn.init.zeros_(self.controller.weight)
+        nn.init.zeros_(self.controller.bias)
+
+    def forward(
+        self, features: torch.Tensor, acquisition_embedding: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        gamma_raw, beta_raw = self.controller(acquisition_embedding).chunk(2, dim=1)
+        gamma = 1.0 + self.alpha * torch.tanh(gamma_raw)
+        # Keep additive modulation on the same per-sample scale as the feature map.
+        rms = features.flatten(1).square().mean(dim=1, keepdim=True).sqrt().clamp_min(1e-6)
+        beta = self.alpha * torch.tanh(beta_raw) * rms
+        shape = (features.shape[0], features.shape[1]) + (1,) * (features.ndim - 2)
+        shifted = features * gamma.reshape(shape) + beta.reshape(shape)
+        relative_rms = (
+            (shifted - features).flatten(1).square().mean(dim=1).sqrt()
+            / rms.flatten().clamp_min(1e-6)
+        )
+        return shifted, relative_rms
+
+
 class DualShiftResNet3D(nn.Module):
     def __init__(
         self,
@@ -37,12 +66,15 @@ class DualShiftResNet3D(nn.Module):
         mixstyle_p: float = 0.5,
         mixstyle_alpha: float = 0.1,
         prototype_min_subjects: int = 8,
+        use_scan_film: bool = False,
+        scan_film_alpha: float = 0.1,
     ):
         super().__init__()
         self.num_classes = int(num_classes)
         self.use_apis = bool(use_apis) and not bool(use_mixstyle)
         self.use_cdt = bool(use_cdt)
         self.use_mixstyle = bool(use_mixstyle)
+        self.use_scan_film = bool(use_scan_film)
         self.backbone = DualShiftBackbone(layers=layers, base_channels=base_channels)
         self.demographic_encoder = DemographicEncoder()
         self.fusion = LowRankDemographicFusion(
@@ -54,6 +86,11 @@ class DualShiftResNet3D(nn.Module):
         self.dropout = nn.Dropout(p=float(dropout))
         self.classifier = nn.Linear(self.backbone.out_channels, self.num_classes)
         self.acquisition_encoder = AcquisitionDescriptorEncoder(out_dim=acquisition_out_dim)
+        self.scan_film = BoundedAcquisitionFiLM(
+            acquisition_out_dim,
+            self.backbone.out_channels,
+            alpha=scan_film_alpha,
+        )
         self.apis = APISModule(
             layer1_channels=self.backbone.layer1_channels,
             layer2_channels=self.backbone.layer2_channels,
@@ -143,8 +180,20 @@ class DualShiftResNet3D(nn.Module):
             )
 
         clean_feats = self.backbone(image)
+        acq_emb = None
+        scan_film_strength = image.new_zeros(())
+        if (
+            self.use_scan_film
+            and acquisitions is not None
+            and self.acquisition_encoder.is_fitted_
+        ):
+            acq_emb = self.acquisition_encoder(acquisitions)
+            clean_layer4, film_per_sample = self.scan_film(clean_feats["layer4"], acq_emb)
+            scan_film_strength = film_per_sample.mean()
+        else:
+            clean_layer4 = clean_feats["layer4"]
         clean_logits, clean_embedding, demo = self._heads(
-            clean_feats["layer4"], covariates, **head_kwargs
+            clean_layer4, covariates, **head_kwargs
         )
 
         run_apis = (
@@ -160,9 +209,11 @@ class DualShiftResNet3D(nn.Module):
                 clean_embedding=clean_embedding,
                 demographic_embedding=demo,
                 shift_strength=image.new_zeros(()),
+                extras={"scan_film_strength": scan_film_strength},
             )
 
-        acq_emb = self.acquisition_encoder(acquisitions)
+        if acq_emb is None:
+            acq_emb = self.acquisition_encoder(acquisitions)
         domain_keys = self.acquisition_encoder.domain_keys(acquisitions)
         # Collect into pending only; never mutate the frozen sampling bank mid-epoch.
         # Prototype updates always use factual (unshuffled) descriptors.
@@ -209,8 +260,11 @@ class DualShiftResNet3D(nn.Module):
         condition = self.apis.protocol_condition(factual_for_condition, safe_target)
         shift1, shift2 = self.apis.make_shift_fns(condition, valid_mask=valid_mask)
         shifted_feats = self.backbone(image, shift_layer1=shift1, shift_layer2=shift2)
+        shifted_layer4 = shifted_feats["layer4"]
+        if self.use_scan_film:
+            shifted_layer4, _ = self.scan_film(shifted_layer4, acq_emb)
         shifted_logits, shifted_embedding, _ = self._heads(
-            shifted_feats["layer4"], covariates, **head_kwargs
+            shifted_layer4, covariates, **head_kwargs
         )
         apis_audit = self.apis.audit_tensors(image)
         return DualShiftOutput(
@@ -230,6 +284,7 @@ class DualShiftResNet3D(nn.Module):
                 "protocol_condition_norm": condition.norm(dim=1).mean(),
                 "valid_intervention_mask": valid_mask,
                 "valid_intervention_frac": valid_frac,
+                "scan_film_strength": scan_film_strength,
             },
         )
 
