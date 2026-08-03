@@ -1,0 +1,213 @@
+# APIS v2 claim E1 — MCI vs AD (binary).
+# Folder labels: 2 (MCI) -> 0, 3 (AD) -> 1. CN (1) excluded by mapping.
+# Same wave-1 variants / budget / hold-out / Gate as CN vs AD claim, isolated output tree.
+# Primary endpoint: subject-level balanced_accuracy vs MixStyle and metadata_xda.
+# Do not mix with outputs/journal/dual_shift_apis_v2/claim/ (CN vs AD).
+#
+preprocessing_version: skullstrip+n4+mni+crop+normalize
+conference_reference_commit: d1a37d92ba6e646b3ac710cfff44fb737daafaac
+reproduces_conference_numbers: false
+seed: 42
+split_seed: 42
+output_root: outputs/journal/dual_shift_apis_v2/claim_mci_ad
+claim:
+  exclude_subjects_json: data/claim/paired_holdout_subjects.json
+  exclude_subjects_key: subjects_le_30d
+  protocol: apis_v2_claim_e1_mci_ad
+  protocol_revision: 2
+  primary_metric: balanced_accuracy
+  primary_baselines:
+  - mixstyle
+  - metadata_xda
+  isolate_from_smoke: true
+  split_seed: 42
+  exclude_before_split: true
+  carve_e3_from_target: true
+  task_pair: MCI_vs_AD
+  isolate_from_cn_ad_claim: true
+  notes: 'Remote reallocation: CN vs AD E1 runs elsewhere; this tree is MCI vs AD
+    only. Do not mix metrics with outputs/.../claim/.'
+task:
+  mode: binary
+  label_mapping:
+    2: 0
+    3: 1
+  class_names:
+    0: MCI
+    1: AD
+  positive_class: AD
+metadata_match:
+  max_days: 90
+  require_diagnosis_match: true
+  on_diagnosis_mismatch: exclude
+scan_manifest:
+  enabled: true
+  root: F:/ADNI/scan_manifests
+  files:
+    ADNI: ADNI_scan_manifest.csv
+    NACC: NACC_scan_manifest.csv
+cohorts:
+  ADNI:
+    image_root: F:/ADNI/ADNI_dataset
+    metadata_csv: D:/ADNI/merge.csv
+    image_filename: MRI_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping:
+      1: male
+      2: female
+      M: male
+      F: female
+    columns:
+      id:
+      - PTID
+      - RID
+      - subject_id
+      date:
+      - EXAMDATE
+      - VISDATE
+      - date
+      sex:
+      - PTGENDER
+      - SEX
+      - sex
+      - gender
+      age:
+      - AGE
+      - age
+      - AGE_YEARS
+      education:
+      - PTEDUCAT
+      - EDUCATION
+      - education
+      - EDU
+      - EDUC
+      diagnosis:
+      - DIAGNOSIS
+      - DX
+      - label
+  NACC:
+    image_root: F:/ADNI/NACC_dataset
+    metadata_csv: F:/NACC/MRI_mulclass3.csv
+    image_filename: MRI_N4_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping:
+      1: male
+      2: female
+      M: male
+      F: female
+    columns:
+      id:
+      - NACCID
+      - PTID
+      - subject_id
+      date:
+      - date
+      - EXAMDATE
+      - VISDATE
+      sex:
+      - SEX
+      - sex
+      - PTGENDER
+      - gender
+      age:
+      - AGE
+      - age
+      - AGE_YEARS
+      education:
+      - EDUCATION
+      - education
+      - EDUC
+      - EDU
+      - EDUCATION_YEARS
+      diagnosis:
+      - label
+      - DIAGNOSIS
+      - DX
+training:
+  epochs: 50
+  batch_size: 4
+  eval_batch_size: 2
+  num_workers: 0
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  class_weighted_ce: true
+  image_shape: null
+model:
+  name: journal_resnet18
+  base_channels: 32
+  spatial_shape:
+  - 4
+  - 4
+  - 4
+  embedding_dim: 16
+  continuous_centers: 8
+  continuous_bases: 4
+  dropout: 0.1
+environments:
+  mode: age_sex
+  n_age_bins: 3
+  n_education_bins: 3
+  min_group_size: 8
+  min_per_class: 2
+  scale_continuous: true
+groupdro:
+  step_size: 0.01
+loss:
+  lambda_tv: 0.01
+  lambda_sparse: 0.001
+dual_shift:
+  warm_clean_epochs: 5
+  warm_apis_epochs: 5
+  alpha_max: 0.25
+  prototype_min_subjects: 8
+  age_bandwidth: 1.0
+  education_bandwidth: 1.0
+  cross_sex_rho: 0.5
+  ema_beta: 0.9
+  ess_ratio_min: 0.2
+  lambda_shift: 1.0
+  lambda_js: 0.25
+  lambda_feat: 0.1
+  lambda_kl: 0.05
+  lambda_intervention: 0.001
+  apis_basis_count: 4
+  apis_rank: 8
+  acquisition_out_dim: 32
+  fusion_rank: 16
+  mixstyle_p: 0.5
+  mixstyle_alpha: 0.1
+  collapse_guard:
+    enabled: true
+    min_sensitivity: 0.15
+    min_specificity: 0.15
+    min_class_recall: 0.15
+  use_composite_selection: true
+  subject_balanced_sampler: true
+variants:
+- ce_only
+- mixstyle
+- metadata
+- metadata_xda
+- apis_v2
+evaluation:
+  bootstrap_samples: 200
+  aggregate: subject_mean
+  cluster_by_subject: true
+  label_conflict: earliest_visit
+study:
+  directions:
+  - ADNI_to_NACC
+  - NACC_to_ADNI
+  seeds:
+  - 42
+  - 43
+  - 44
+  - 45
+  - 46
+  gate:
+    primary_metric: balanced_accuracy
+    require_beat_mixstyle: true
+    require_beat_metadata_xda: true

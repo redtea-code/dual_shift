@@ -1,8 +1,12 @@
 """Launch APIS v2 claim E1 wave-1 jobs.
 
 Variants: ce_only / mixstyle / metadata / metadata_xda / apis_v2.
-Outputs are forced under outputs/journal/dual_shift_apis_v2/claim/e1/.
-Smoke trees are refused. Max workers hard-capped at 2.
+Outputs are forced under outputs/journal/dual_shift_apis_v2/claim*/e1/.
+Smoke trees are refused. Max workers hard-capped at 3.
+
+Uses a GPU slot queue: each concurrent job pins CUDA_VISIBLE_DEVICES to one
+slot; when a job finishes the slot is returned and the next queued job starts
+automatically (ThreadPoolExecutor).
 
 Protocol revision 2: exclude hold-out before split, carve E1 target vs E3,
 fixed split_seed, fair metadata_xda baseline. Default --force so stale
@@ -16,6 +20,7 @@ import hashlib
 import json
 import os
 import platform
+import queue
 import shutil
 import subprocess
 import sys
@@ -28,8 +33,9 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DIRECTIONS = (("ADNI_to_NACC", "adni_to_nacc"), ("NACC_to_ADNI", "nacc_to_adni"))
 VARIANTS = ("ce_only", "mixstyle", "metadata", "metadata_xda", "apis_v2")
-CLAIM_ROOT = "outputs/journal/dual_shift_apis_v2/claim"
-MAX_WORKERS_HARD_CAP = 2
+# Allowed claim trees: .../claim or task-specific .../claim_<task> (e.g. claim_mci_ad).
+CLAIM_ROOT_PREFIX = "outputs/journal/dual_shift_apis_v2/claim"
+MAX_WORKERS_HARD_CAP = 3
 REQUIRED_PROTOCOL_REVISION = 2
 
 
@@ -41,17 +47,27 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _normalize_claim_root(output_root: str) -> str:
+    root = str(output_root or "").replace("\\", "/").strip().rstrip("/")
+    if not root:
+        raise SystemExit("claim config missing output_root")
+    if "smoke" in root.lower():
+        raise SystemExit("claim launcher refuses a smoke output_root")
+    if not (
+        root == CLAIM_ROOT_PREFIX or root.startswith(CLAIM_ROOT_PREFIX + "_")
+    ):
+        raise SystemExit(
+            f"claim launcher requires output_root '{CLAIM_ROOT_PREFIX}' "
+            f"or '{CLAIM_ROOT_PREFIX}_<task>', got {root!r}"
+        )
+    return root
+
+
 def _validate_claim_config(path: Path) -> dict:
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise SystemExit(f"invalid claim config: {path}")
-    root = str(payload.get("output_root") or "")
-    if "smoke" in root.replace("\\", "/").lower():
-        raise SystemExit("claim launcher refuses a smoke output_root")
-    if CLAIM_ROOT not in root.replace("\\", "/"):
-        raise SystemExit(
-            f"claim launcher requires output_root under {CLAIM_ROOT}, got {root!r}"
-        )
+    payload["output_root"] = _normalize_claim_root(str(payload.get("output_root") or ""))
     dual = payload.get("dual_shift") or {}
     if float(dual.get("alpha_max", 0.25)) != 0.25:
         raise SystemExit("claim E1 requires dual_shift.alpha_max == 0.25")
@@ -83,7 +99,8 @@ def _git_head() -> str:
 
 
 def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
-    claim_dir = PROJECT_ROOT / CLAIM_ROOT
+    claim_root = _normalize_claim_root(str(payload.get("output_root") or ""))
+    claim_dir = PROJECT_ROOT / claim_root
     claim_dir.mkdir(parents=True, exist_ok=True)
     freeze_dir = claim_dir / "protocol_freeze"
     freeze_dir.mkdir(parents=True, exist_ok=True)
@@ -143,6 +160,7 @@ def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
         "git_head": _git_head(),
         "config_path": str(config_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
         "config_sha256": _sha256_file(config_path),
+        "output_root": claim_root,
         "protocol_freeze_copy": str(frozen.relative_to(PROJECT_ROOT)).replace("\\", "/"),
         "holdout_json": str(holdout_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
         "holdout_sha256": holdout_sha,
@@ -151,12 +169,15 @@ def write_env_fingerprint(config_path: Path, payload: dict) -> Path:
         "torch": torch_info,
         "claim_protocol": claim.get("protocol"),
         "claim_protocol_revision": claim.get("protocol_revision"),
+        "task_mode": (payload.get("task") or {}).get("mode"),
+        "label_mapping": (payload.get("task") or {}).get("label_mapping"),
         "split_seed": claim.get("split_seed", payload.get("split_seed")),
         "primary_metric": claim.get("primary_metric"),
         "primary_baselines": claim.get("primary_baselines"),
         "variants": list(VARIANTS),
         "seeds_default": [42, 43, 44, 45, 46],
         "max_workers_hard_cap": MAX_WORKERS_HARD_CAP,
+        "gpu_slot_queue": True,
     }
     out = claim_dir / "env_fingerprint.json"
     out.write_text(json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8")
@@ -193,16 +214,39 @@ def _job_complete(
     return True
 
 
-def _run_one_job(job: dict) -> dict:
+def _parse_gpu_ids(raw: str, max_workers: int) -> list[int]:
+    ids = [int(x) for x in str(raw).split(",") if str(x).strip() != ""]
+    if not ids:
+        raise SystemExit("--gpu-ids must list at least one GPU index")
+    if len(ids) < max_workers:
+        raise SystemExit(
+            f"--gpu-ids has {len(ids)} entries but --max-workers={max_workers}"
+        )
+    return ids[:max_workers]
+
+
+def _run_one_job(job: dict, gpu_slots: "queue.Queue[int]") -> dict:
     cmd = job["cmd"]
     label = job["label"]
-    print(f"[claim-e1] START {label}", flush=True)
+    gpu_id = gpu_slots.get()
+    env = {**cmd["env"], "CUDA_VISIBLE_DEVICES": str(gpu_id)}
+    print(
+        f"[claim-e1] START {label} (CUDA_VISIBLE_DEVICES={gpu_id})",
+        flush=True,
+    )
     t0 = time.time()
-    code = subprocess.call(cmd["argv"], cwd=cmd["cwd"], env=cmd["env"])
+    try:
+        code = subprocess.call(cmd["argv"], cwd=cmd["cwd"], env=env)
+    finally:
+        gpu_slots.put(gpu_id)
     elapsed = time.time() - t0
     status = "ok" if code == 0 else f"exit={code}"
-    print(f"[claim-e1] DONE  {label} ({status}, {elapsed/60:.1f} min)", flush=True)
-    return {"label": label, "code": code, "elapsed_sec": elapsed}
+    print(
+        f"[claim-e1] DONE  {label} ({status}, {elapsed/60:.1f} min, "
+        f"freed gpu={gpu_id})",
+        flush=True,
+    )
+    return {"label": label, "code": code, "elapsed_sec": elapsed, "gpu_id": gpu_id}
 
 
 def main() -> None:
@@ -228,8 +272,14 @@ def main() -> None:
     parser.add_argument(
         "--max-workers",
         type=int,
-        default=2,
+        default=3,
         help=f"Concurrent (seed,direction) jobs; hard-capped at {MAX_WORKERS_HARD_CAP}",
+    )
+    parser.add_argument(
+        "--gpu-ids",
+        default="0,1,2",
+        help="Comma-separated physical GPU indices for the worker slots "
+        "(length must be >= max-workers; extras ignored)",
     )
     parser.add_argument(
         "--fingerprint-only",
@@ -246,11 +296,13 @@ def main() -> None:
             flush=True,
         )
         args.max_workers = MAX_WORKERS_HARD_CAP
+    gpu_ids = _parse_gpu_ids(args.gpu_ids, args.max_workers)
 
     config_path = Path(args.config_path)
     if not config_path.is_absolute():
         config_path = PROJECT_ROOT / config_path
     payload = _validate_claim_config(config_path)
+    claim_root = _normalize_claim_root(str(payload.get("output_root") or ""))
     write_env_fingerprint(config_path, payload)
     if args.fingerprint_only:
         return
@@ -261,7 +313,7 @@ def main() -> None:
     skipped = 0
     for seed in seeds:
         for direction, slug in DIRECTIONS:
-            output_dir = PROJECT_ROOT / CLAIM_ROOT / "e1" / f"seed{seed}" / slug
+            output_dir = PROJECT_ROOT / claim_root / "e1" / f"seed{seed}" / slug
             label = f"seed{seed}/{slug}"
             seeded_payload = json.loads(json.dumps(payload))
             seeded_payload["seed"] = int(seed)
@@ -282,7 +334,7 @@ def main() -> None:
                 continue
             if "smoke" in str(output_dir).replace("\\", "/").lower():
                 raise SystemExit("refusing smoke output path")
-            rel_out = f"{CLAIM_ROOT}/e1/seed{seed}/{slug}"
+            rel_out = f"{claim_root}/e1/seed{seed}/{slug}"
             argv = [
                 args.python,
                 "run_v2.py",
@@ -312,16 +364,22 @@ def main() -> None:
 
     print(
         f"[claim-e1] queue={len(jobs)} skipped={skipped} "
-        f"max_workers={args.max_workers} force={force}",
+        f"max_workers={args.max_workers} gpu_ids={gpu_ids} force={force}",
         flush=True,
     )
     if not jobs:
         print("[claim-e1] nothing to run", flush=True)
         return
 
+    gpu_slots: queue.Queue[int] = queue.Queue()
+    for gpu_id in gpu_ids:
+        gpu_slots.put(int(gpu_id))
+
     failures = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.max_workers) as pool:
-        futures = [pool.submit(_run_one_job, job) for job in jobs]
+        futures = [
+            pool.submit(_run_one_job, job, gpu_slots) for job in jobs
+        ]
         for fut in concurrent.futures.as_completed(futures):
             result = fut.result()
             if result["code"] != 0:
