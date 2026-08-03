@@ -51,23 +51,32 @@ from Model.backbone.backdoor_backbone import resnet10_backdoor
 from Model.backbone.daft_backbone import resnet10_daft
 from Model.backbone.film_backbone import resnet10_film
 from Model.backbone.journal_resnet import journal_resnet10, journal_resnet18
-from Model.comparison.factories import make_concat_fusion, make_hyperfusion
 from Model.dual_shift import DualShiftResNet3D
+from Model.dual_shift.metadata_baseline import (
+    MetadataConcatBaseline,
+    MetadataDemoAcqBaseline,
+)
 from training.dual_shift_loop import (
     initialize_dual_shift_controllers,
     run_dual_shift_epoch,
 )
-from Model.dictionary.journal_dual_dict import (
-    make_journal_dual_dict,
-    resolve_dictionary_preset,
-)
-from Model.dictionary.losses import compute_core_losses
 from training.group_dro import GroupDRO
 from training.journal_metrics import (
     bootstrap_confidence_intervals,
     compute_journal_metrics,
+    compute_metrics_by_field_strength,
     paired_bootstrap_difference,
     save_json_summary,
+)
+from utils.claim_holdout import (
+    assert_index_sets_disjoint,
+    assert_no_holdout_leak,
+    assert_no_subject_id_overlap,
+    eligible_subjects,
+    filter_indices_excluding_subjects,
+    filter_indices_including_subjects,
+    holdout_file_sha256,
+    load_holdout_subjects,
 )
 from utils.journal_protocol import (
     DemographicEnvironmentBuilder,
@@ -84,6 +93,9 @@ VARIANT_STAGES = {
     "film": "baselines",
     "daft": "baselines",
     "hyperfusion": "baselines",
+    # Claim baseline: image + acquisition concat (no demographics).
+    "metadata": "baselines",
+    "metadata_xda": "baselines",
     # Original Wave0 methods re-run under journal protocol (same split/cov3).
     "gamma": "gamma_concat",
     "concat": "gamma_concat",
@@ -93,7 +105,9 @@ VARIANT_STAGES = {
     # Dual-shift journal mainline (CDT + APIS).
     "dual_shift": "dual_shift",
     "cdt_only": "dual_shift",
-    "apis_only": "dual_shift",
+    "apis_only": "dual_shift",  # legacy alias → residual APIS v2 behavior
+    "apis_v2": "dual_shift",
+    "apis_v2_shuffle": "dual_shift",
     "mixstyle": "dual_shift",
 }
 
@@ -106,24 +120,36 @@ VARIANT_DISPLAY = {
     "film": "film",
     "daft": "daft",
     "hyperfusion": "hyperfusion",
+    "metadata": "metadata_acq_concat",
+    "metadata_xda": "metadata_xda_concat",
     "gamma": "gamma",
     "concat": "concat",
     "dual_dict_linear": "dual_dict_linear",
     "dual_dict_core": "dual_dict_core",
     "dual_shift": "dual_shift",
     "cdt_only": "cdt_only",
-    "apis_only": "apis_only",
+    "apis_only": "apis_v2",
+    "apis_v2": "apis_v2",
+    "apis_v2_shuffle": "apis_v2_shuffle",
     "mixstyle": "mixstyle",
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
+METADATA_VARIANTS = frozenset({"metadata", "metadata_xda"})
 PATCH_GAMMA_VARIANTS = frozenset({"gamma"})
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
-DUAL_SHIFT_VARIANTS = frozenset({"dual_shift", "cdt_only", "apis_only", "mixstyle"})
+DUAL_SHIFT_VARIANTS = frozenset(
+    {"dual_shift", "cdt_only", "apis_only", "apis_v2", "apis_v2_shuffle", "mixstyle"}
+)
 JOURNAL_SPATIAL_VARIANTS = frozenset({"spatial", "spatial_groupdro"})
 JOURNAL_BACKBONE_VARIANTS = frozenset(
     {"ce_only", "groupdro", "spatial", "spatial_groupdro"}
 )
+
+VARIANT_ALIASES = {
+    # Historical name retained; residual APIS v2 is the current implementation.
+    "apis_only": "apis_v2",
+}
 
 
 def _default_gamma_backdoor_kwargs() -> dict:
@@ -178,14 +204,26 @@ def _split_source(
     val_ratio: float,
     test_ratio: float,
     seed: int,
+    *,
+    eligible_subject_ids: set[str] | None = None,
 ):
-    """Subject-level 6/2/2 (or configured) source split with optional stratification."""
+    """Subject-level 6/2/2 (or configured) source split with optional stratification.
+
+    When ``eligible_subject_ids`` is provided, hold-out / blocked subjects are
+    removed *before* the split so configured ratios apply to the final pool.
+    """
     ratios = np.asarray([train_ratio, val_ratio, test_ratio], dtype=float)
     if ratios.shape != (3,) or np.any(ratios <= 0) or not np.isclose(ratios.sum(), 1.0):
         raise ValueError(
             "train_ratio, val_ratio, and test_ratio must be positive and sum to 1"
         )
     subjects = np.unique(dataset.subject_ids)
+    if eligible_subject_ids is not None:
+        allowed = {str(item) for item in eligible_subject_ids}
+        subjects = np.asarray(
+            [subject for subject in subjects.tolist() if str(subject) in allowed],
+            dtype=object,
+        )
     if len(subjects) < 3:
         raise ValueError("Source dataset needs at least three subjects for 6/2/2 split")
     subject_labels = _subject_labels(dataset, subjects)
@@ -254,6 +292,7 @@ def _fit_protocol(
     environment_config,
     *,
     frozen_manifest=None,
+    target_indices=None,
 ):
     fitted_preprocessor = CovariatePreprocessor(
         scale_continuous=bool(environment_config.get("scale_continuous", True))
@@ -373,11 +412,15 @@ def _fit_protocol(
         subject_ids=source.subject_ids[test_indices],
         validate_no_train_overlap=True,
     )
-    target_indices = np.arange(len(target))
+    target_indices = (
+        np.arange(len(target))
+        if target_indices is None
+        else np.asarray(target_indices, dtype=int)
+    )
     target_raw = filled(target, target_indices)
     target_env = builder.transform(
         *target_raw,
-        subject_ids=target.subject_ids,
+        subject_ids=target.subject_ids[target_indices],
         validate_no_train_overlap=False,
     )
     return preprocessor, builder, train_env, val_env, test_env, target_env
@@ -436,6 +479,8 @@ def _make_model(config, num_classes, variant):
     covariate_dim = 3
 
     if variant in DICTIONARY_VARIANTS:
+        from Model.dictionary.journal_dual_dict import make_journal_dual_dict
+
         backbone = _make_journal_backbone(config, num_classes)
         feature_dim = _backbone_feature_dim(backbone)
         return make_journal_dual_dict(
@@ -449,18 +494,25 @@ def _make_model(config, num_classes, variant):
     if variant in DUAL_SHIFT_VARIANTS:
         ds = config.get("dual_shift") or {}
         model_config = config["model"]
-        return DualShiftResNet3D(
+        use_apis = variant in {"dual_shift", "apis_only", "apis_v2", "apis_v2_shuffle"}
+        model = DualShiftResNet3D(
             num_classes=num_classes,
             base_channels=int(model_config.get("base_channels", 32)),
             dropout=float(model_config.get("dropout", 0.1)),
-            alpha_max=float(ds.get("alpha_max", 0.5)),
-            use_apis=variant in {"dual_shift", "apis_only"},
+            fusion_rank=int(ds.get("fusion_rank", 16)),
+            acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
+            alpha_max=float(ds.get("alpha_max", 0.25)),
+            apis_basis_count=int(ds.get("apis_basis_count", 4)),
+            apis_rank=int(ds.get("apis_rank", 8)),
+            use_apis=use_apis,
             use_cdt=variant in {"dual_shift", "cdt_only"},
             use_mixstyle=variant == "mixstyle",
             mixstyle_p=float(ds.get("mixstyle_p", 0.5)),
             mixstyle_alpha=float(ds.get("mixstyle_alpha", 0.1)),
             prototype_min_subjects=int(ds.get("prototype_min_subjects", 8)),
         )
+        model.shuffle_acquisition = bool(variant == "apis_v2_shuffle")
+        return model
 
     if variant == "film":
         return resnet10_film(
@@ -476,6 +528,8 @@ def _make_model(config, num_classes, variant):
             feature=False,
         )
     if variant == "hyperfusion":
+        from Model.comparison.factories import make_hyperfusion
+
         return make_hyperfusion(
             in_channels=1,
             num_tabular=covariate_dim,
@@ -485,7 +539,26 @@ def _make_model(config, num_classes, variant):
             dropout=float(baseline_cfg.get("hyper_dropout", model_config.get("dropout", 0.1))),
             base_channels=int(baseline_cfg.get("hyper_base_channels", 8)),
         )
+    if variant == "metadata":
+        ds = config.get("dual_shift") or {}
+        return MetadataConcatBaseline(
+            num_classes=num_classes,
+            base_channels=int(model_config.get("base_channels", 32)),
+            acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
+            dropout=float(model_config.get("dropout", 0.1)),
+        )
+    if variant == "metadata_xda":
+        ds = config.get("dual_shift") or {}
+        return MetadataDemoAcqBaseline(
+            num_classes=num_classes,
+            base_channels=int(model_config.get("base_channels", 32)),
+            acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
+            fusion_rank=int(ds.get("fusion_rank", 16)),
+            dropout=float(model_config.get("dropout", 0.1)),
+        )
     if variant == "concat":
+        from Model.comparison.factories import make_concat_fusion
+
         return make_concat_fusion(
             in_channels=1,
             num_tabular=covariate_dim,
@@ -523,6 +596,8 @@ def _logits(model, batch, spatial, variant=None):
     covariates = batch["covariates"]
     if variant in DICTIONARY_VARIANTS:
         return model(image, covariates)
+    if variant in METADATA_VARIANTS:
+        raise RuntimeError("metadata variant must pass acquisitions via _run_epoch")
     if variant in EXTERNAL_FUSION_VARIANTS or variant in PATCH_GAMMA_VARIANTS:
         # FiLM/DAFT/Gamma: (x, txt); HyperFusion/Concat: (image, table).
         return model(image, covariates)
@@ -549,6 +624,7 @@ def _run_epoch(
     total_loss = 0.0
     count = 0
     logits_all, labels_all, env_all, subjects, folders = [], [], [], [], []
+    field_strengths = []
     weight_tensor = (
         None
         if class_weights is None
@@ -560,6 +636,7 @@ def _run_epoch(
             for key, value in raw_batch.items()
             if key != "acquisition"
         }
+        acquisitions = raw_batch.get("acquisition")
         with torch.set_grad_enabled(training):
             if variant in DUAL_SHIFT_VARIANTS:
                 raise RuntimeError(
@@ -568,6 +645,20 @@ def _run_epoch(
             if variant in DICTIONARY_VARIANTS:
                 dict_out = model.forward_dict(batch["image"], batch["covariates"])
                 logits = dict_out["logits"]
+            elif variant in METADATA_VARIANTS:
+                if not isinstance(acquisitions, list):
+                    raise RuntimeError("metadata variant requires acquisition rows")
+                if variant == "metadata_xda":
+                    logits = model(
+                        batch["image"],
+                        batch["covariates"],
+                        acquisitions,
+                        age_missing=batch.get("age_missing"),
+                        sex_missing=batch.get("sex_missing"),
+                        education_missing=batch.get("education_missing"),
+                    )
+                else:
+                    logits = model(batch["image"], acquisitions)
             else:
                 logits = _logits(model, batch, spatial, variant=variant)
             if dro is None:
@@ -593,6 +684,9 @@ def _run_epoch(
             train_loss = objective
             if variant in DICTIONARY_VARIANTS and training:
                 # Supervised dual-dict core loss on frozen CE GAP features.
+                from Model.dictionary.journal_dual_dict import resolve_dictionary_preset
+                from Model.dictionary.losses import compute_core_losses
+
                 preset_cfg = resolve_dictionary_preset(
                     config.get("dictionary") or {}, variant
                 )
@@ -660,6 +754,14 @@ def _run_epoch(
         env_all.append(batch["environment_id"].detach().cpu())
         subjects.extend(raw_batch["subject_id"])
         folders.extend(raw_batch["folder"])
+        if isinstance(acquisitions, list):
+            for record in acquisitions:
+                try:
+                    field_strengths.append(float((record or {}).get("field_strength")))
+                except (TypeError, ValueError):
+                    field_strengths.append(float("nan"))
+        else:
+            field_strengths.extend([float("nan")] * batch_size)
     logits_np = torch.cat(logits_all).numpy()
     labels_np = torch.cat(labels_all).numpy()
     env_np = torch.cat(env_all).numpy()
@@ -678,14 +780,23 @@ def _run_epoch(
         "environments": env_np,
         "subjects": subjects,
         "folders": folders,
+        "field_strengths": field_strengths,
         "metrics": metrics,
     }
 
 
 def _save_predictions(path, result):
     probabilities = torch.softmax(torch.from_numpy(result["logits"]), dim=1).numpy()
-    fields = ["subject_id", "folder", "label", "predicted_label", "environment_id"]
+    fields = [
+        "subject_id",
+        "folder",
+        "label",
+        "predicted_label",
+        "environment_id",
+        "field_strength",
+    ]
     fields += [f"probability_{i}" for i in range(probabilities.shape[1])]
+    strengths = result.get("field_strengths") or [float("nan")] * len(probabilities)
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -696,6 +807,7 @@ def _save_predictions(path, result):
                 "label": int(result["labels"][index]),
                 "predicted_label": int(probability.argmax()),
                 "environment_id": int(result["environments"][index]),
+                "field_strength": strengths[index],
             }
             row.update(
                 {f"probability_{i}": float(value) for i, value in enumerate(probability)}
@@ -761,6 +873,7 @@ def _selection_key(result, config, *, variant: str | None = None):
         input_type="logits",
         subject_ids=result["subjects"],
         aggregate=aggregate if aggregate != "none" else "subject_mean",
+        folders=result.get("folders"),
     )
     auc = float(subject_metrics["auc"])
     macro_f1 = float(subject_metrics.get("macro_f1") or 0.0)
@@ -777,11 +890,14 @@ def _selection_key(result, config, *, variant: str | None = None):
 
     ds = config.get("dual_shift") or {}
     guard = ds.get("collapse_guard") or {}
+    # Main claim variants must share checkpoint selection. Otherwise APIS and
+    # metadata_xda are compared after optimizing different validation rules.
+    claim_selection_variants = DUAL_SHIFT_VARIANTS | METADATA_VARIANTS
     apply_guard = bool(guard.get("enabled", True)) and (
-        variant in DUAL_SHIFT_VARIANTS if variant is not None else False
+        variant in claim_selection_variants if variant is not None else False
     )
     use_composite = bool(ds.get("use_composite_selection", True)) and (
-        variant in DUAL_SHIFT_VARIANTS if variant is not None else False
+        variant in claim_selection_variants if variant is not None else False
     )
     if not apply_guard:
         if use_composite:
@@ -876,10 +992,29 @@ def _train_variant(
     patch_gamma = variant in PATCH_GAMMA_VARIANTS
     dictionary = variant in DICTIONARY_VARIANTS
     dual_shift = variant in DUAL_SHIFT_VARIANTS
+    metadata = variant in METADATA_VARIANTS
     model = _make_model(config, num_classes, variant).to(device)
-    dict_cfg = resolve_dictionary_preset(config.get("dictionary") or {}, variant) if dictionary else {}
+    if dictionary:
+        from Model.dictionary.journal_dual_dict import resolve_dictionary_preset
+
+        dict_cfg = resolve_dictionary_preset(config.get("dictionary") or {}, variant)
+    else:
+        dict_cfg = {}
     if dual_shift:
         initialize_dual_shift_controllers(model, train_loader.dataset, config)
+        parameters = model.parameters()
+        lr = float(config["training"]["learning_rate"])
+        weight_decay = float(config["training"]["weight_decay"])
+    elif metadata:
+        # Fit acquisition vocab/stats on source train only (same rule as APIS).
+        train_subset = train_loader.dataset
+        acquisitions = []
+        for index in train_subset.indices:
+            record = train_subset.dataset.records[int(index)]
+            acquisitions.append(record.get("acquisition") or {})
+        if not any(acquisitions):
+            raise RuntimeError("metadata baseline requires acquisition rows on train set")
+        model.fit_acquisition_encoder(acquisitions)
         parameters = model.parameters()
         lr = float(config["training"]["learning_rate"])
         weight_decay = float(config["training"]["weight_decay"])
@@ -977,12 +1112,17 @@ def _train_variant(
                 "val_loss": val_result["loss"],
                 "val_auc": key[-1] if isinstance(key[-1], (int, float)) else None,
                 "phase": train_result.get("phase"),
+                "apis_coefficient_l2": train_result.get("apis_coefficient_l2"),
+                "valid_intervention_frac": train_result.get("valid_intervention_frac"),
             }
         )
         print(
             f"[journal] {variant} epoch {epoch + 1}/{int(config['training']['epochs'])} "
             f"train_loss={train_result['loss']:.4f} val_loss={val_result['loss']:.4f} "
-            f"val_auc={history[-1]['val_auc']}",
+            f"val_auc={history[-1]['val_auc']} "
+            f"phase={train_result.get('phase')} "
+            f"apis_l2={train_result.get('apis_coefficient_l2')} "
+            f"valid_frac={train_result.get('valid_intervention_frac')}",
             flush=True,
         )
         if best_key is None or key > best_key:
@@ -1007,14 +1147,19 @@ def _train_variant(
                 )
                 payload["prototype_bank"] = model.prototype_bank.state_dict()
                 payload["cdt"] = model.cdt.state_dict()
+            if metadata:
+                payload["acquisition_encoder_extra"] = (
+                    model.acquisition_encoder.to_state_dict_extra()
+                )
             torch.save(payload, checkpoint_path)
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    if dual_shift:
+    if dual_shift or metadata:
         if checkpoint.get("acquisition_encoder_extra"):
             model.acquisition_encoder.load_state_dict_extra(
                 checkpoint["acquisition_encoder_extra"]
             )
             model.acquisition_encoder.to(device)
+    if dual_shift:
         if checkpoint.get("prototype_bank"):
             model.prototype_bank.load_state_dict(checkpoint["prototype_bank"])
         if checkpoint.get("cdt"):
@@ -1085,6 +1230,7 @@ def _train_variant(
             input_type="probabilities",
             subject_ids=result["subjects"],
             aggregate=aggregate,
+            folders=result.get("folders"),
         )
         ci = bootstrap_confidence_intervals(
             probabilities,
@@ -1096,6 +1242,7 @@ def _train_variant(
             subject_ids=result["subjects"],
             cluster_by_subject=cluster,
             aggregate=aggregate,
+            folders=result.get("folders"),
         )
         reports[split] = {
             "loss": result["loss"],
@@ -1103,6 +1250,19 @@ def _train_variant(
             "metrics": subject_metrics,
             "bootstrap_ci": ci,
         }
+        strengths = result.get("field_strengths")
+        if strengths is not None and len(strengths) == len(result["labels"]):
+            reports[split]["metrics_by_field_strength"] = (
+                compute_metrics_by_field_strength(
+                    probabilities,
+                    result["labels"],
+                    strengths,
+                    result["environments"],
+                    input_type="probabilities",
+                    subject_ids=result["subjects"],
+                    aggregate=aggregate,
+                )
+            )
     baseline_name = VARIANT_DISPLAY.get(variant, variant)
     if variant == "ce_only" and not bool(
         config.get("training", {}).get("class_weighted_ce", False)
@@ -1124,6 +1284,17 @@ def _train_variant(
             ),
             "group_weights": None if dro is None else dro.group_weights.cpu().tolist(),
             "initialization_seed": int(config["seed"]),
+            "training_seed": int(config["seed"]),
+            "split_seed": int(
+                (config.get("claim") or {}).get(
+                    "split_seed", config.get("split_seed", config["seed"])
+                )
+            ),
+            "claim_protocol": (config.get("claim") or {}).get("protocol"),
+            "claim_protocol_revision": (config.get("claim") or {}).get(
+                "protocol_revision"
+            ),
+            "config_hash": _config_fingerprint(config),
         }
     )
     save_json_summary(variant_dir / "journal_metrics.json", reports)
@@ -1153,6 +1324,8 @@ def _manifest(
     preprocessor,
     builder,
     config,
+    *,
+    target_indices=None,
 ):
     def rows(dataset, indices, split, cohort):
         return [
@@ -1171,6 +1344,8 @@ def _manifest(
         return sorted(dataset.records[index]["folder"] for index in indices)
 
     source_name, target_name = direction.split("_to_")
+    if target_indices is None:
+        target_indices = list(range(len(target)))
     return {
         "direction": direction,
         "protocol": {
@@ -1184,6 +1359,12 @@ def _manifest(
             ),
         },
         "initialization_seed": int(config["seed"]),
+        "split_seed": int(
+            (config.get("claim") or {}).get(
+                "split_seed", config.get("split_seed", config["seed"])
+            )
+        ),
+        "training_seed": int(config["seed"]),
         "label_mapping": dict(source.label_mapping),
         "preprocessing_version": str(
             config.get("data", {}).get("preprocessing_version", "journal_v1")
@@ -1195,12 +1376,12 @@ def _manifest(
         "source_train_folders": folders(source, train_indices),
         "source_val_folders": folders(source, val_indices),
         "source_test_folders": folders(source, test_indices),
-        "target_subjects": sorted(set(target.subject_ids.tolist())),
-        "target_folders": folders(target, range(len(target))),
+        "target_subjects": sorted(set(target.subject_ids[target_indices].tolist())),
+        "target_folders": folders(target, target_indices),
         "samples": rows(source, train_indices, "source_train", source_name)
         + rows(source, val_indices, "source_val", source_name)
         + rows(source, test_indices, "source_test", source_name)
-        + rows(target, range(len(target)), "target", target_name),
+        + rows(target, target_indices, "target_e1", target_name),
         "covariate_preprocessor": preprocessor.to_dict(),
         "environment": builder.to_dict(),
         "dataset_fingerprint": {
@@ -1208,6 +1389,7 @@ def _manifest(
             "target_n": int(len(target)),
             "source_subjects": int(len(set(source.subject_ids.tolist()))),
             "target_subjects": int(len(set(target.subject_ids.tolist()))),
+            "e1_target_n": int(len(target_indices)),
         },
     }
 
@@ -1415,19 +1597,120 @@ def run(
     train_ratio = float(train_cfg.get("train_ratio", 0.6))
     val_ratio = float(train_cfg.get("val_ratio", 0.2))
     test_ratio = float(train_cfg.get("test_ratio", 0.2))
+    claim_cfg = config.get("claim") or {}
+    holdout_subjects: set[str] = set()
+    holdout_path = claim_cfg.get("exclude_subjects_json")
+    holdout_key = str(claim_cfg.get("exclude_subjects_key", "subjects_le_30d"))
+    holdout_sha = None
+    if holdout_path:
+        holdout_subjects = load_holdout_subjects(holdout_path, key=holdout_key)
+        holdout_sha = holdout_file_sha256(holdout_path)
+    split_seed = int(
+        claim_cfg.get(
+            "split_seed",
+            config.get("split_seed", config["seed"]),
+        )
+    )
+    training_seed = int(config["seed"])
+    eligible_source = (
+        eligible_subjects(source.subject_ids.tolist(), holdout_subjects)
+        if holdout_subjects
+        else None
+    )
     frozen_manifest = None
     if split_manifest:
         train_indices, val_indices, test_indices, frozen_manifest = _load_frozen_split(
             source, split_manifest
         )
+        if holdout_subjects:
+            for name, indices in (
+                ("train", train_indices),
+                ("val", val_indices),
+                ("test", test_indices),
+            ):
+                assert_no_holdout_leak(
+                    source.subject_ids, indices, holdout_subjects, split_name=name
+                )
     else:
+        # Exclude E3 paired subjects *before* 6/2/2 so ratios apply to the
+        # final eligible pool (fixed split_seed, independent of training_seed).
         train_indices, val_indices, test_indices = _split_source(
-            source, train_ratio, val_ratio, test_ratio, int(config["seed"])
+            source,
+            train_ratio,
+            val_ratio,
+            test_ratio,
+            split_seed,
+            eligible_subject_ids=eligible_source,
         )
+    if holdout_subjects:
+        for name, indices in (
+            ("train", train_indices),
+            ("val", val_indices),
+            ("test", test_indices),
+        ):
+            assert_no_holdout_leak(
+                source.subject_ids, indices, holdout_subjects, split_name=name
+            )
+            if len(indices) == 0:
+                raise RuntimeError(f"hold-out exclusion emptied source {name} split")
     assert_disjoint_subjects(
         source.subject_ids[train_indices],
         source.subject_ids[val_indices],
         source.subject_ids[test_indices],
+    )
+    all_source_indices = np.arange(len(source), dtype=int)
+    all_target_indices = np.arange(len(target), dtype=int)
+    source_e3_paired_indices = np.asarray([], dtype=int)
+    target_e3_paired_indices = np.asarray([], dtype=int)
+    if holdout_subjects:
+        # The paired cohort may be source (ADNI -> NACC) or target
+        # (NACC -> ADNI). Preserve both sides explicitly for E3.
+        source_e3_paired_indices = np.asarray(
+            filter_indices_including_subjects(
+                source.subject_ids, all_source_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
+        e1_target_indices = np.asarray(
+            filter_indices_excluding_subjects(
+                target.subject_ids, all_target_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
+        target_e3_paired_indices = np.asarray(
+            filter_indices_including_subjects(
+                target.subject_ids, all_target_indices, holdout_subjects
+            ),
+            dtype=int,
+        )
+        assert_index_sets_disjoint(
+            target.subject_ids,
+            e1_target_indices,
+            target_e3_paired_indices,
+            left_name="e1_target",
+            right_name="e3_paired",
+        )
+        assert_no_holdout_leak(
+            target.subject_ids,
+            e1_target_indices,
+            holdout_subjects,
+            split_name="e1_target",
+        )
+        if len(e1_target_indices) == 0:
+            raise RuntimeError("hold-out exclusion emptied E1 target set")
+    else:
+        e1_target_indices = all_target_indices
+    source_used_subjects = (
+        set(map(str, source.subject_ids[train_indices].tolist()))
+        | set(map(str, source.subject_ids[val_indices].tolist()))
+        | set(map(str, source.subject_ids[test_indices].tolist()))
+    )
+    e1_target_subjects = set(map(str, target.subject_ids[e1_target_indices].tolist()))
+    assert_no_subject_id_overlap(
+        source_used_subjects,
+        e1_target_subjects,
+        left_name="source_e1",
+        right_name="target_e1",
     )
     preprocessor, builder, train_env, val_env, test_env, target_env = _fit_protocol(
         source,
@@ -1437,22 +1720,25 @@ def run(
         target,
         config["environments"],
         frozen_manifest=frozen_manifest,
+        target_indices=e1_target_indices,
     )
     train_set = JournalSubset(source, train_indices, preprocessor, train_env)
     val_set = JournalSubset(source, val_indices, preprocessor, val_env)
     test_set = JournalSubset(source, test_indices, preprocessor, test_env)
-    target_set = JournalSubset(target, np.arange(len(target)), preprocessor, target_env)
+    target_set = JournalSubset(target, e1_target_indices, preprocessor, target_env)
     batch_size = int(config["training"]["batch_size"])
     if batch_size < 2:
         raise ValueError("training.batch_size must be >= 2 for BatchNorm stability")
-    generator = torch.Generator().manual_seed(int(config["seed"]))
     common = {"num_workers": int(config["training"]["num_workers"])}
-    requested = list(variants or config.get("variants") or [])
+    requested = [
+        VARIANT_ALIASES.get(str(item), str(item))
+        for item in list(variants or config.get("variants") or [])
+    ]
     use_subject_balance = bool(
         (config.get("dual_shift") or {}).get("subject_balanced_sampler", True)
     ) and any(v in DUAL_SHIFT_VARIANTS or v == "ce_only" for v in requested)
     # Apply subject-balanced sampling for DualShift screening runs (incl. fair CE).
-    train_sampler = None
+    train_sampler_weights = None
     if use_subject_balance:
         subject_ids = [
             str(source.subject_ids[int(index)]) for index in train_set.indices
@@ -1461,22 +1747,30 @@ def run(
         for subject_id in subject_ids:
             counts[subject_id] = counts.get(subject_id, 0) + 1
         weights = [1.0 / counts[subject_id] for subject_id in subject_ids]
-        train_sampler = WeightedRandomSampler(
-            weights=weights,
-            num_samples=len(weights),
-            replacement=True,
-            generator=generator,
+        train_sampler_weights = weights
+
+    def make_train_loader():
+        # Recreate sampler state for every variant so all variants see the
+        # same subject-balanced sample sequence.
+        generator = torch.Generator().manual_seed(training_seed)
+        sampler = None
+        if train_sampler_weights is not None:
+            sampler = WeightedRandomSampler(
+                weights=train_sampler_weights,
+                num_samples=len(train_sampler_weights),
+                replacement=True,
+                generator=generator,
+            )
+        return DataLoader(
+            train_set,
+            batch_size=batch_size,
+            shuffle=sampler is None,
+            sampler=sampler,
+            generator=generator if sampler is None else None,
+            drop_last=len(train_set) >= batch_size,
+            collate_fn=journal_collate,
+            **common,
         )
-    train_loader = DataLoader(
-        train_set,
-        batch_size=batch_size,
-        shuffle=train_sampler is None,
-        sampler=train_sampler,
-        generator=generator if train_sampler is None else None,
-        drop_last=len(train_set) >= batch_size,
-        collate_fn=journal_collate,
-        **common,
-    )
     eval_batch = int(config["training"]["eval_batch_size"])
     val_loader = DataLoader(
         val_set, batch_size=eval_batch, collate_fn=journal_collate, **common
@@ -1498,13 +1792,64 @@ def run(
         preprocessor,
         builder,
         config,
+        target_indices=e1_target_indices,
     )
+    n_train_subj = len(set(source.subject_ids[train_indices].tolist()))
+    n_val_subj = len(set(source.subject_ids[val_indices].tolist()))
+    n_test_subj = len(set(source.subject_ids[test_indices].tolist()))
+    n_split_subj = n_train_subj + n_val_subj + n_test_subj
     manifest["split_ratios"] = {
         "train": train_ratio,
         "val": val_ratio,
         "test": test_ratio,
     }
+    manifest["split_ratios_actual"] = {
+        "train": float(n_train_subj / n_split_subj) if n_split_subj else None,
+        "val": float(n_val_subj / n_split_subj) if n_split_subj else None,
+        "test": float(n_test_subj / n_split_subj) if n_split_subj else None,
+        "n_subjects": int(n_split_subj),
+    }
+    manifest["split_seed"] = int(split_seed)
+    manifest["training_seed"] = int(training_seed)
+    manifest["initialization_seed"] = int(training_seed)
     manifest["frozen_split_manifest"] = split_manifest
+    manifest["e1_target_subjects"] = sorted(e1_target_subjects)
+    manifest["e3_paired_subjects_by_cohort"] = {
+        source_name: sorted(
+            set(map(str, source.subject_ids[source_e3_paired_indices].tolist()))
+        ),
+        target_name: sorted(
+            set(map(str, target.subject_ids[target_e3_paired_indices].tolist()))
+        ),
+    }
+    manifest["e3_paired_indices_by_cohort"] = {
+        source_name: [int(i) for i in source_e3_paired_indices.tolist()],
+        target_name: [int(i) for i in target_e3_paired_indices.tolist()],
+    }
+    manifest["source_e3_paired_indices"] = [
+        int(i) for i in source_e3_paired_indices.tolist()
+    ]
+    manifest["target_e3_paired_indices"] = [
+        int(i) for i in target_e3_paired_indices.tolist()
+    ]
+    manifest["e1_target_indices"] = [int(i) for i in e1_target_indices.tolist()]
+    # Keep legacy key pointing at E1 target only (claim-facing external set).
+    manifest["target_subjects"] = sorted(e1_target_subjects)
+    manifest["claim_holdout"] = {
+        "enabled": bool(holdout_subjects),
+        "path": holdout_path,
+        "key": holdout_key if holdout_path else None,
+        "sha256": holdout_sha,
+        "n_excluded_subjects": int(len(holdout_subjects)),
+        "excluded_subjects": sorted(holdout_subjects),
+        "exclude_before_split": True,
+        "e1_target_n_subjects": int(len(e1_target_subjects)),
+        "e3_paired_n_subjects_by_cohort": {
+            cohort: len(subjects)
+            for cohort, subjects in manifest["e3_paired_subjects_by_cohort"].items()
+        },
+        "protocol_revision": claim_cfg.get("protocol_revision"),
+    }
     manifest["match_audit"] = {
         "source": getattr(source, "match_audit", {}),
         "target": getattr(target, "match_audit", {}),
@@ -1514,7 +1859,7 @@ def run(
         Path(output_dir) / "metadata_match_audit.json",
         manifest["match_audit"],
     )
-    selected = variants or config["variants"]
+    selected = requested
     unknown = set(selected).difference(VARIANT_STAGES)
     if unknown:
         raise ValueError(f"Unknown journal variants: {sorted(unknown)}")
@@ -1532,13 +1877,23 @@ def run(
         metrics_path = Path(output_dir) / variant / "journal_metrics.json"
         if skip_existing and metrics_path.exists():
             with open(metrics_path, encoding="utf-8") as handle:
-                results[variant] = json.load(handle)
-            print(f"[journal] skip existing variant: {variant}", flush=True)
-            continue
+                existing = json.load(handle)
+            required_rev = claim_cfg.get("protocol_revision")
+            existing_rev = existing.get("claim_protocol_revision")
+            if required_rev is not None and existing_rev != required_rev:
+                print(
+                    f"[journal] refuse stale variant {variant}: "
+                    f"metrics revision={existing_rev!r} required={required_rev!r}",
+                    flush=True,
+                )
+            else:
+                results[variant] = existing
+                print(f"[journal] skip existing variant: {variant}", flush=True)
+                continue
         results[variant] = _train_variant(
             variant,
             config,
-            train_loader,
+            make_train_loader(),
             val_loader,
             test_loader,
             target_loader,

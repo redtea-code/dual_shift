@@ -1,5 +1,10 @@
 # CDT–APIS 双轴稳健模型初步方案
 
+> **APIS v2 revision (2026-07-30):** 本文档中的 AdaIN/protocol-statistic
+> transport 是历史初版，不再代表当前实现。当前 APIS 为 source-observed
+> protocol cluster 上的有界低秩残差干预，不声称连续 MRI 物理模拟。规范定义见
+> `Model/APIS_V2_DATA_CONSTRAINED_DESIGN.md`。
+
 **状态：** 模型级设计草案，不包含实现代码  
 **上层研究设计：** `review/journal/dual_shift_design_and_experiment_plan_2026-07-22.md`（历史外部文档，当前仓库未收录）
 **主模型暂称：** `DualShiftResNet3D`  

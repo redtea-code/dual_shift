@@ -66,13 +66,16 @@ def compute_dual_shift_loss(
     class_weights: Optional[torch.Tensor] = None,
     kl_value: float = 0.0,
     shift_strength: float = 0.0,
-    alpha_max: float = 0.5,
+    alpha_max: float = 0.25,
     lambda_shift: float = 1.0,
     lambda_js: float = 0.25,
     lambda_feat: float = 0.1,
     lambda_kl: float = 0.05,
     enable_apis: bool = True,
     penalize_alpha_overflow: bool = False,
+    intervention_penalty: Optional[torch.Tensor] = None,
+    lambda_intervention: float = 0.001,
+    intervention_mask: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
     clean_ce = _weighted_ce(clean_logits, labels, sample_weights, class_weights)
     losses = {
@@ -82,17 +85,29 @@ def compute_dual_shift_loss(
         "feat": clean_logits.new_zeros(()),
         "kl": clean_logits.new_tensor(float(kl_value)),
         "strength": clean_logits.new_zeros(()),
+        "intervention": clean_logits.new_zeros(()),
     }
     total = clean_ce + lambda_kl * losses["kl"]
-    if enable_apis and shifted_logits is not None:
-        shift_ce = _weighted_ce(shifted_logits, labels, sample_weights, class_weights)
-        js = js_divergence(clean_logits, shifted_logits, sample_weights)
+    shift_weights = sample_weights
+    apis_active = bool(enable_apis and shifted_logits is not None)
+    if apis_active and intervention_mask is not None:
+        mask = intervention_mask.to(device=clean_logits.device, dtype=torch.float32).reshape(
+            -1
+        )
+        if sample_weights is None:
+            shift_weights = mask
+        else:
+            shift_weights = sample_weights.to(clean_logits.device).reshape(-1) * mask
+        apis_active = bool(float(mask.sum().detach()) > 0.0)
+    if apis_active and shifted_logits is not None:
+        shift_ce = _weighted_ce(shifted_logits, labels, shift_weights, class_weights)
+        js = js_divergence(clean_logits, shifted_logits, shift_weights)
         losses["shift_ce"] = shift_ce
         losses["js"] = js
         total = total + lambda_shift * shift_ce + lambda_js * js
         if clean_embedding is not None and shifted_embedding is not None:
             feat = feature_cosine_loss(
-                clean_embedding, shifted_embedding, sample_weights
+                clean_embedding, shifted_embedding, shift_weights
             )
             losses["feat"] = feat
             total = total + lambda_feat * feat
@@ -102,6 +117,19 @@ def compute_dual_shift_loss(
             )
             losses["strength"] = strength
             total = total + strength
+        if intervention_penalty is not None:
+            pen = intervention_penalty.to(clean_logits.device)
+            if intervention_mask is not None and pen.ndim > 0:
+                mask = intervention_mask.to(device=pen.device, dtype=pen.dtype).reshape(
+                    -1
+                )
+                pen = pen.reshape(-1)
+                denom = mask.sum().clamp_min(1.0)
+                pen = (pen * mask).sum() / denom
+            elif pen.ndim > 0:
+                pen = pen.mean()
+            losses["intervention"] = pen
+            total = total + lambda_intervention * losses["intervention"]
     with torch.no_grad():
         losses["per_sample_clean"] = F.cross_entropy(
             clean_logits, labels, reduction="none"

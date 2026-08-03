@@ -1,15 +1,11 @@
-# Stage-2 dual-shift screening overrides.
-# Use with:
-#   python run_v2.py --exp journal --config_path config/journal_dual_shift_stage2.yaml ...
-#
-# Keeps Manifest-first journal defaults, but lowers bootstrap cost for screening.
+﻿# APIS v2 real-data smoke (short schedule). Pathway check only — not claim evidence.
 
 preprocessing_version: skullstrip+n4+mni+crop+normalize
 conference_reference_commit: d1a37d92ba6e646b3ac710cfff44fb737daafaac
 reproduces_conference_numbers: false
 
 seed: 42
-output_root: outputs/journal/dual_shift_stage2
+output_root: outputs/journal/dual_shift_apis_v2/smoke
 
 task:
   mode: binary
@@ -58,7 +54,7 @@ cohorts:
       diagnosis: [label, DIAGNOSIS, DX]
 
 training:
-  epochs: 50
+  epochs: 6
   batch_size: 4
   eval_batch_size: 2
   num_workers: 0
@@ -95,12 +91,9 @@ loss:
   lambda_sparse: 0.001
 
 dual_shift:
-  warm_clean_epochs: 5
-  warm_apis_epochs: 5
-  # APIS v2: bounded residual intervention over observed source protocols.
+  warm_clean_epochs: 1
+  warm_apis_epochs: 2
   alpha_max: 0.25
-  apis_basis_count: 4
-  apis_rank: 8
   prototype_min_subjects: 8
   age_bandwidth: 1.0
   education_bandwidth: 1.0
@@ -110,8 +103,10 @@ dual_shift:
   lambda_shift: 1.0
   lambda_js: 0.25
   lambda_feat: 0.1
-  lambda_intervention: 0.001
   lambda_kl: 0.05
+  lambda_intervention: 0.001
+  apis_basis_count: 4
+  apis_rank: 8
   mixstyle_p: 0.5
   mixstyle_alpha: 0.1
   collapse_guard:
@@ -122,20 +117,13 @@ dual_shift:
   use_composite_selection: true
   subject_balanced_sampler: true
 
-variants: [ce_only, mixstyle, apis_only, cdt_only, dual_shift]
+variants: [ce_only, mixstyle, apis_v2]
 
 evaluation:
-  # Screening uses fewer bootstraps; raise back to 1000 for final tables.
-  bootstrap_samples: 200
+  bootstrap_samples: 50
   aggregate: subject_mean
   cluster_by_subject: true
 
 study:
-  directions: [ADNI_to_NACC, NACC_to_ADNI]
-  seeds: [42, 43, 44]
-  gate:
-    max_auc_drop: 0.01
-    min_ece_improvement: 0.005
-    min_brier_improvement: 0.005
-    worst_group_tolerance: 0.0
-    max_macro_f1_drop: 0.03
+  directions: [ADNI_to_NACC]
+  seeds: [42]

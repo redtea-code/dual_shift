@@ -1,15 +1,40 @@
-# Stage-2 dual-shift screening overrides.
-# Use with:
-#   python run_v2.py --exp journal --config_path config/journal_dual_shift_stage2.yaml ...
+﻿# APIS v2 claim E1 protocol (full budget).
+# Primary endpoint: subject-level balanced_accuracy vs MixStyle and metadata_xda.
+# Hold-out: paired <=30d subjects excluded BEFORE source 6/2/2 and from E1 target.
+# E3 paired indices are carved from whichever cohort contains the pair and
+# never enter E1 metrics; manifests store source/target indices separately.
+# Do not use smoke/ outputs or 6-epoch budgets for claim decisions.
 #
-# Keeps Manifest-first journal defaults, but lowers bootstrap cost for screening.
+# Wave-1 input axes (X=image, D=demographics, A=acquisition):
+#   ce_only      : X
+#   mixstyle     : X + D  (MixStyle; demographic low-rank fusion)
+#   metadata     : X + A  (GAP concat acquisition; supplemental A-only control)
+#   metadata_xda : X + D + A  (fair baseline vs apis_v2)
+#   apis_v2      : X + D  (APIS residual on A at train-time only; demographic fusion)
+# Neither apis_v2 nor metadata* enables CDT in wave-1.
+#
+# Seeds: split_seed freezes subject partitions; training seeds (study.seeds) only
+# control initialization / sampling.
 
 preprocessing_version: skullstrip+n4+mni+crop+normalize
 conference_reference_commit: d1a37d92ba6e646b3ac710cfff44fb737daafaac
 reproduces_conference_numbers: false
 
 seed: 42
-output_root: outputs/journal/dual_shift_stage2
+split_seed: 42
+output_root: outputs/journal/dual_shift_apis_v2/claim
+
+claim:
+  exclude_subjects_json: data/claim/paired_holdout_subjects.json
+  exclude_subjects_key: subjects_le_30d
+  protocol: apis_v2_claim_e1
+  protocol_revision: 2
+  primary_metric: balanced_accuracy
+  primary_baselines: [mixstyle, metadata_xda]
+  isolate_from_smoke: true
+  split_seed: 42
+  exclude_before_split: true
+  carve_e3_from_target: true
 
 task:
   mode: binary
@@ -97,10 +122,7 @@ loss:
 dual_shift:
   warm_clean_epochs: 5
   warm_apis_epochs: 5
-  # APIS v2: bounded residual intervention over observed source protocols.
   alpha_max: 0.25
-  apis_basis_count: 4
-  apis_rank: 8
   prototype_min_subjects: 8
   age_bandwidth: 1.0
   education_bandwidth: 1.0
@@ -110,8 +132,12 @@ dual_shift:
   lambda_shift: 1.0
   lambda_js: 0.25
   lambda_feat: 0.1
-  lambda_intervention: 0.001
   lambda_kl: 0.05
+  lambda_intervention: 0.001
+  apis_basis_count: 4
+  apis_rank: 8
+  acquisition_out_dim: 32
+  fusion_rank: 16
   mixstyle_p: 0.5
   mixstyle_alpha: 0.1
   collapse_guard:
@@ -122,20 +148,18 @@ dual_shift:
   use_composite_selection: true
   subject_balanced_sampler: true
 
-variants: [ce_only, mixstyle, apis_only, cdt_only, dual_shift]
+variants: [ce_only, mixstyle, metadata, metadata_xda, apis_v2]
 
 evaluation:
-  # Screening uses fewer bootstraps; raise back to 1000 for final tables.
   bootstrap_samples: 200
   aggregate: subject_mean
   cluster_by_subject: true
+  label_conflict: earliest_visit
 
 study:
   directions: [ADNI_to_NACC, NACC_to_ADNI]
-  seeds: [42, 43, 44]
+  seeds: [42, 43, 44, 45, 46]
   gate:
-    max_auc_drop: 0.01
-    min_ece_improvement: 0.005
-    min_brier_improvement: 0.005
-    worst_group_tolerance: 0.0
-    max_macro_f1_drop: 0.03
+    primary_metric: balanced_accuracy
+    require_beat_mixstyle: true
+    require_beat_metadata_xda: true
