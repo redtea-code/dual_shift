@@ -27,6 +27,9 @@
 | [`10_apis_v2_claim_validation_plan_2026-07-30.md`](plans/10_apis_v2_claim_validation_plan_2026-07-30.md) | APIS v2 主张边界与验证实验方案 |
 | [`11_apis_v2_local_experiment_schedule_2026-07-30.md`](plans/11_apis_v2_local_experiment_schedule_2026-07-30.md) | APIS v2 本地 smoke 安排 |
 | [`14_apis_v2_claim_execution_plan_2026-07-31.md`](plans/14_apis_v2_claim_execution_plan_2026-07-31.md) | APIS v2 主张验证执行计划 |
+| [`16_apis_v2_claim_e1_mci_ad_remote_plan_2026-08-02.md`](plans/16_apis_v2_claim_e1_mci_ad_remote_plan_2026-08-02.md) | APIS v2 MCI vs AD 远程执行计划 |
+| [`19_support_aware_paired_protocol_execution_plan_2026-08-03.md`](plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md) | Scan-aware 支持集与配对协议筛选计划 |
+| [`20_apic_v3_image_only_comparison_plan_2026-08-03.md`](plans/20_apic_v3_image_only_comparison_plan_2026-08-03.md) | APIC v3 严格 X / 扩展 X+D 多任务双向两种子对比计划 |
 
 ### Records
 
@@ -52,6 +55,7 @@
 | 文档 | 作用 |
 |---|---|
 | [`04_dual_shift_remote_handoff_2026-07-29.md`](operations/04_dual_shift_remote_handoff_2026-07-29.md) | 远程实验交接与任务分发 |
+| [`21_apic_v3_remote_screening_handoff_2026-08-03.md`](operations/21_apic_v3_remote_screening_handoff_2026-08-03.md) | APIC v3 两 seed 多任务远程筛选命令与回传规范 |
 
 ## 新文档要求
 

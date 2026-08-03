@@ -69,6 +69,7 @@ class DualShiftResNet3D(nn.Module):
         prototype_min_subjects: int = 8,
         use_scan_film: bool = False,
         scan_film_alpha: float = 0.1,
+        use_demographics: bool = True,
         apis_variant: str = "v2_residual",
         apis_style_dim: int = 16,
         apis_memory_size: int = 8,
@@ -81,6 +82,7 @@ class DualShiftResNet3D(nn.Module):
         self.use_cdt = bool(use_cdt)
         self.use_mixstyle = bool(use_mixstyle)
         self.use_scan_film = bool(use_scan_film)
+        self.use_demographics = bool(use_demographics)
         self.apis_variant = str(apis_variant)
         self.backbone = DualShiftBackbone(layers=layers, base_channels=base_channels)
         self.demographic_encoder = DemographicEncoder()
@@ -150,6 +152,12 @@ class DualShiftResNet3D(nn.Module):
         education_missing: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         pooled = self.pool(layer4).flatten(1)
+        if not self.use_demographics:
+            # Keep the diagnostic path strictly image-only. Covariates remain in
+            # the batch schema for compatible loaders, but cannot affect logits.
+            logits = self.classifier(self.dropout(pooled))
+            empty_demo = pooled.new_zeros((pooled.shape[0], 0))
+            return logits, pooled, empty_demo
         demo = self.demographic_encoder(
             covariates,
             age_missing=age_missing,

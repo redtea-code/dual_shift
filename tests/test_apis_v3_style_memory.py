@@ -2,6 +2,7 @@ import unittest
 
 import torch
 
+from Model.backbone.journal_resnet import journal_resnet10
 from Model.dual_shift.apis_v3 import StyleMemoryAPISV3
 from Model.dual_shift.model import DualShiftResNet3D
 
@@ -65,6 +66,37 @@ class StyleMemoryAPISV3Test(unittest.TestCase):
         model.eval()
         clean = model(image, covariates=covariates, acquisitions=None)
         self.assertIsNone(clean.shifted_logits)
+
+    def test_image_only_mode_ignores_demographics(self):
+        torch.manual_seed(17)
+        model = DualShiftResNet3D(
+            num_classes=2,
+            layers=(1, 1, 1, 1),
+            base_channels=4,
+            acquisition_out_dim=4,
+            use_demographics=False,
+            apis_variant="v3_style_memory",
+        )
+        model.eval()
+        image = torch.randn(2, 1, 16, 16, 16)
+        first = model(image, covariates=torch.zeros(2, 3), acquisitions=None)
+        second = model(image, covariates=torch.full((2, 3), 99.0), acquisitions=None)
+
+        self.assertTrue(torch.equal(first.clean_logits, second.clean_logits))
+
+    def test_image_only_journal_baseline_ignores_demographics(self):
+        torch.manual_seed(19)
+        model = journal_resnet10(
+            num_classes=2,
+            base_channels=4,
+            spatial_shape=(1, 1, 1),
+            var_specs=[],
+        ).eval()
+        image = torch.randn(2, 1, 16, 16, 16)
+        first = model(image, torch.zeros(2, 3))
+        second = model(image, torch.full((2, 3), -5.0))
+
+        self.assertTrue(torch.equal(first, second))
 
 
 if __name__ == "__main__":

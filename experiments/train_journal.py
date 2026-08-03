@@ -80,6 +80,13 @@ from utils.journal_protocol import (
     DemographicEnvironmentBuilder,
     assert_disjoint_subjects,
 )
+from experiments.apic_v3_protocol import (
+    APIC_V3_PRIMARY_VARIANTS,
+    APIC_V3_SCREENING_VARIANTS,
+    APIC_V3_SECONDARY_VARIANTS,
+    apic_v3_variant_spec,
+    config_fingerprint,
+)
 
 
 VARIANT_STAGES = {
@@ -110,6 +117,13 @@ VARIANT_STAGES = {
     "film_scan": "dual_shift",
     "apis_scan": "dual_shift",
     "mixstyle": "dual_shift",
+    # APIC v3 modality-frozen screening variants.
+    "ce_x": "apic_v3_screening",
+    "mixstyle_x": "apic_v3_screening",
+    "apic_v3_x": "apic_v3_screening",
+    "ce_xd": "apic_v3_screening",
+    "mixstyle_xd": "apic_v3_screening",
+    "apic_v3_xd": "apic_v3_screening",
 }
 
 # Display names: ce_only with class_weighted_ce is weighted CE, not plain CE.
@@ -136,6 +150,12 @@ VARIANT_DISPLAY = {
     "film_scan": "film_scan",
     "apis_scan": "apis_scan",
     "mixstyle": "mixstyle",
+    "ce_x": "weighted_ce_x",
+    "mixstyle_x": "mixstyle_x",
+    "apic_v3_x": "apic_v3_x",
+    "ce_xd": "weighted_ce_xd",
+    "mixstyle_xd": "mixstyle_xd",
+    "apic_v3_xd": "apic_v3_xd",
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
@@ -148,7 +168,7 @@ DUAL_SHIFT_VARIANTS = frozenset(
         "v3_style_memory",
         "mixstyle", "film_scan", "apis_scan",
     }
-)
+) | APIC_V3_SCREENING_VARIANTS
 JOURNAL_SPATIAL_VARIANTS = frozenset({"spatial", "spatial_groupdro"})
 JOURNAL_BACKBONE_VARIANTS = frozenset(
     {"ce_only", "groupdro", "spatial", "spatial_groupdro"}
@@ -158,8 +178,6 @@ VARIANT_ALIASES = {
     # Historical name retained; residual APIS v2 is the current implementation.
     "apis_only": "apis_v2",
 }
-
-
 def _default_gamma_backdoor_kwargs() -> dict:
     """Match Wave0 B_gamma defaults (table_feature→cov3; patch-γ + TV/sparsity)."""
     return {
@@ -460,6 +478,8 @@ def _make_journal_backbone(config, num_classes):
             "n_bases": int(model_config.get("continuous_bases", 4)),
         },
     ]
+    if not bool(model_config.get("use_demographics", True)):
+        var_specs = []
     return factory(
         num_classes=num_classes,
         base_channels=int(model_config["base_channels"]),
@@ -485,6 +505,15 @@ def _make_model(config, num_classes, variant):
     model_config = config["model"]
     baseline_cfg = config.get("baselines", {})
     covariate_dim = 3
+    screening_spec = apic_v3_variant_spec(variant)
+    base_variant = (
+        str(screening_spec["base_variant"]) if screening_spec is not None else variant
+    )
+    use_demographics = (
+        bool(screening_spec["use_demographics"])
+        if screening_spec is not None
+        else bool(model_config.get("use_demographics", True))
+    )
 
     if variant in DICTIONARY_VARIANTS:
         from Model.dictionary.journal_dual_dict import make_journal_dual_dict
@@ -502,7 +531,7 @@ def _make_model(config, num_classes, variant):
     if variant in DUAL_SHIFT_VARIANTS:
         ds = config.get("dual_shift") or {}
         model_config = config["model"]
-        use_apis = variant in {
+        use_apis = base_variant in {
             "dual_shift", "apis_only", "apis_v2", "apis_v2_shuffle", "apis_scan",
             "v3_style_memory",
         }
@@ -516,22 +545,25 @@ def _make_model(config, num_classes, variant):
             apis_basis_count=int(ds.get("apis_basis_count", 4)),
             apis_rank=int(ds.get("apis_rank", 8)),
             use_apis=use_apis,
-            use_cdt=variant in {"dual_shift", "cdt_only"},
-            use_mixstyle=variant == "mixstyle",
+            use_cdt=base_variant in {"dual_shift", "cdt_only"},
+            use_mixstyle=base_variant == "mixstyle",
             mixstyle_p=float(ds.get("mixstyle_p", 0.5)),
             mixstyle_alpha=float(ds.get("mixstyle_alpha", 0.1)),
             prototype_min_subjects=int(ds.get("prototype_min_subjects", 8)),
-            use_scan_film=variant in {"film_scan", "apis_scan"},
+            use_scan_film=base_variant in {"film_scan", "apis_scan"},
             scan_film_alpha=float(ds.get("scan_film_alpha", 0.1)),
+            use_demographics=use_demographics,
             apis_variant=(
-                "v3_style_memory" if variant == "v3_style_memory" else "v2_residual"
+                "v3_style_memory"
+                if base_variant == "v3_style_memory"
+                else "v2_residual"
             ),
             apis_style_dim=int(ds.get("apis_style_dim", 16)),
             apis_memory_size=int(ds.get("apis_memory_size", 8)),
             apis_memory_beta=float(ds.get("apis_memory_beta", 0.95)),
             apis_style_temperature=float(ds.get("apis_style_temperature", 0.5)),
         )
-        model.shuffle_acquisition = bool(variant == "apis_v2_shuffle")
+        model.shuffle_acquisition = bool(base_variant == "apis_v2_shuffle")
         return model
 
     if variant == "film":
@@ -579,6 +611,7 @@ def _make_model(config, num_classes, variant):
             acquisition_out_dim=int(ds.get("acquisition_out_dim", 32)),
             fusion_rank=int(ds.get("fusion_rank", 16)),
             dropout=float(model_config.get("dropout", 0.1)),
+            use_demographics=bool(model_config.get("use_demographics", True)),
         )
     if variant == "concat":
         from Model.comparison.factories import make_concat_fusion
@@ -1140,6 +1173,17 @@ def _train_variant(
                 "phase": train_result.get("phase"),
                 "apis_coefficient_l2": train_result.get("apis_coefficient_l2"),
                 "valid_intervention_frac": train_result.get("valid_intervention_frac"),
+                "apis_feature_strength": train_result.get("apis_feature_strength"),
+                "style_confidence": train_result.get("style_confidence"),
+                "style_entropy": train_result.get("style_entropy"),
+                "style_delta": train_result.get("style_delta"),
+                "condition_gate": train_result.get("condition_gate"),
+                "style_memory_valid_slots": train_result.get(
+                    "style_memory_valid_slots"
+                ),
+                "style_memory_total_assignments": train_result.get(
+                    "style_memory_total_assignments"
+                ),
             }
         )
         print(
@@ -1170,6 +1214,8 @@ def _train_variant(
             if dual_shift:
                 payload["acquisition_encoder_extra"] = (
                     model.acquisition_encoder.to_state_dict_extra()
+                    if model.acquisition_encoder.is_fitted_
+                    else None
                 )
                 payload["prototype_bank"] = model.prototype_bank.state_dict()
                 payload["cdt"] = model.cdt.state_dict()
@@ -1294,6 +1340,19 @@ def _train_variant(
         config.get("training", {}).get("class_weighted_ce", False)
     ):
         baseline_name = "unweighted_ce"
+    screening_spec = apic_v3_variant_spec(variant)
+    apic_v3_audit = None
+    if getattr(model, "apis_variant", None) == "v3_style_memory":
+        valid = model.apis.style_valid.detach().cpu()
+        counts = model.apis.style_counts.detach().cpu()
+        apic_v3_audit = {
+            "memory_size": int(model.apis.memory_size),
+            "valid_slots": int(valid.sum().item()),
+            "style_valid": [bool(item) for item in valid.tolist()],
+            "style_counts": [float(item) for item in counts.tolist()],
+            "total_assignments": float(counts.sum().item()),
+            "inference_path": "clean",
+        }
     reports.update(
         {
             "variant": variant,
@@ -1321,6 +1380,26 @@ def _train_variant(
                 "protocol_revision"
             ),
             "config_hash": _config_fingerprint(config),
+            "method_family": (
+                "APIC_v3_screening" if screening_spec is not None else None
+            ),
+            "code_variant": (
+                screening_spec["base_variant"]
+                if screening_spec is not None
+                else variant
+            ),
+            "input_modalities": (
+                screening_spec["modalities"] if screening_spec is not None else None
+            ),
+            "use_demographics": bool(getattr(model, "use_demographics", False)),
+            "uses_acquisition_metadata": bool(
+                getattr(model, "use_scan_film", False)
+                or (
+                    getattr(model, "use_apis", False)
+                    and getattr(model, "apis_variant", None) != "v3_style_memory"
+                )
+            ),
+            "apic_v3_audit": apic_v3_audit,
         }
     )
     save_json_summary(variant_dir / "journal_metrics.json", reports)
@@ -1329,15 +1408,7 @@ def _train_variant(
 
 
 def _config_fingerprint(config: dict) -> str:
-    def normalise(value):
-        if isinstance(value, dict):
-            return {str(key): normalise(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [normalise(item) for item in value]
-        return value
-
-    payload = json.dumps(normalise(config), sort_keys=True, default=str)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return config_fingerprint(config)
 
 
 def _manifest(
@@ -1442,51 +1513,68 @@ def _read_prediction_table(path):
 
 
 def _paired_variant_comparisons(output_dir, variants, config):
-    """Compare every trained variant with CE-only on identical target samples."""
-    if "ce_only" not in variants:
-        return {}
-    baseline = _read_prediction_table(
-        Path(output_dir) / "ce_only" / "target_predictions.csv"
-    )
+    """Compare variants only against a CE baseline with the same input modalities."""
+    baseline_groups = {
+        "ce_only": [
+            variant
+            for variant in variants
+            if variant not in APIC_V3_SCREENING_VARIANTS
+        ],
+        "ce_x": [variant for variant in variants if variant in APIC_V3_PRIMARY_VARIANTS],
+        "ce_xd": [
+            variant for variant in variants if variant in APIC_V3_SECONDARY_VARIANTS
+        ],
+    }
     eval_cfg = config.get("evaluation", {})
     comparisons = {}
-    for variant in variants:
-        if variant == "ce_only":
+    for baseline_name, group in baseline_groups.items():
+        if baseline_name not in variants:
             continue
-        candidate = _read_prediction_table(
-            Path(output_dir) / variant / "target_predictions.csv"
+        baseline = _read_prediction_table(
+            Path(output_dir) / baseline_name / "target_predictions.csv"
         )
-        if candidate[0] != baseline[0] or not np.array_equal(candidate[2], baseline[2]):
-            raise ValueError(
-                f"Cannot pair {variant} with ce_only: target sample order differs"
+        for variant in group:
+            if variant == baseline_name:
+                continue
+            candidate = _read_prediction_table(
+                Path(output_dir) / variant / "target_predictions.csv"
             )
-        subjects = [key[0] for key in baseline[0]]
-        metric_results = {}
-        for metric in (
-            "accuracy",
-            "macro_f1",
-            "auc",
-            "brier",
-            "ece",
-            "worst_group_auc",
-            "group_gap",
-            "sensitivity",
-            "specificity",
-        ):
-            metric_results[metric] = paired_bootstrap_difference(
-                candidate[1],
-                baseline[1],
-                baseline[2],
-                baseline[3],
-                metric=metric,
-                n_bootstrap=int(eval_cfg.get("bootstrap_samples", 1000)),
-                random_state=int(config["seed"]),
-                input_type="probabilities",
-                subject_ids=subjects,
-                cluster_by_subject=bool(eval_cfg.get("cluster_by_subject", True)),
-                aggregate=str(eval_cfg.get("aggregate", "subject_mean")),
-            )
-        comparisons[f"{variant}_minus_ce_only"] = metric_results
+            if candidate[0] != baseline[0] or not np.array_equal(
+                candidate[2], baseline[2]
+            ):
+                raise ValueError(
+                    f"Cannot pair {variant} with {baseline_name}: "
+                    "target sample order differs"
+                )
+            subjects = [key[0] for key in baseline[0]]
+            metric_results = {}
+            for metric in (
+                "accuracy",
+                "macro_f1",
+                "auc",
+                "brier",
+                "ece",
+                "worst_group_auc",
+                "group_gap",
+                "sensitivity",
+                "specificity",
+            ):
+                metric_results[metric] = paired_bootstrap_difference(
+                    candidate[1],
+                    baseline[1],
+                    baseline[2],
+                    baseline[3],
+                    metric=metric,
+                    n_bootstrap=int(eval_cfg.get("bootstrap_samples", 1000)),
+                    random_state=int(config["seed"]),
+                    input_type="probabilities",
+                    subject_ids=subjects,
+                    cluster_by_subject=bool(
+                        eval_cfg.get("cluster_by_subject", True)
+                    ),
+                    aggregate=str(eval_cfg.get("aggregate", "subject_mean")),
+                )
+            comparisons[f"{variant}_minus_{baseline_name}"] = metric_results
     return comparisons
 
 
@@ -2185,6 +2273,9 @@ def _make_smoke_data(root: str, config: dict):
             "alpha_max": 0.25,
             "prototype_min_subjects": 1,
             "collapse_guard": {"enabled": False},
+            # Avoid replacement sampling selecting duplicate images within the
+            # tiny smoke batch, which can make an image-derived style delta zero.
+            "subject_balanced_sampler": False,
         }
     )
     config["environments"].update(

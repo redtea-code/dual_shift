@@ -48,7 +48,15 @@ def phase_schedule(epoch: int, config: Mapping, *, variant: str | None = None) -
     warm_clean = int(ds.get("warm_clean_epochs", 5))
     warm_apis = int(ds.get("warm_apis_epochs", 5))
     alpha_max = float(ds.get("alpha_max", 0.5))
-    if variant == "mixstyle":
+    if variant in {"ce_x", "ce_xd"}:
+        return {
+            "apis_active": False,
+            "cdt_enabled": False,
+            "alpha": 0.0,
+            "update_prototypes": False,
+            "phase": "clean",
+        }
+    if variant in {"mixstyle", "mixstyle_x", "mixstyle_xd"}:
         return {
             "apis_active": False,
             "cdt_enabled": False,
@@ -116,30 +124,34 @@ def initialize_dual_shift_controllers(
 ) -> None:
     dataset = train_subset.dataset
     indices = train_subset.indices
-    acquisitions = []
-    sample_ids = []
-    for index in indices:
-        record = dataset.records[int(index)]
-        sample_ids.append(str(record["folder"]))
-        acquisitions.append(record.get("acquisition") or {})
-    if any(acquisitions):
-        model.fit_acquisition_encoder(acquisitions)
-    covariates = train_subset.covariates
-    model.cdt.initialize(
-        sample_ids=sample_ids,
-        subject_ids=[str(dataset.subject_ids[int(i)]) for i in indices],
-        labels=[int(dataset.labels[int(i)]) for i in indices],
-        age=covariates[:, 0].tolist(),
-        sex=covariates[:, 1].tolist(),
-        education=covariates[:, 2].tolist(),
-    )
     ds = config.get("dual_shift") or {}
-    model.cdt.age_bandwidth = float(ds.get("age_bandwidth", 1.0))
-    model.cdt.education_bandwidth = float(ds.get("education_bandwidth", 1.0))
-    model.cdt.cross_sex_rho = float(ds.get("cross_sex_rho", 0.5))
-    model.cdt.ema_beta = float(ds.get("ema_beta", 0.9))
-    model.cdt.ess_ratio_min = float(ds.get("ess_ratio_min", 0.2))
-    model.cdt.kl_lambda = float(ds.get("lambda_kl", 0.05))
+    needs_acquisition = model.use_scan_film or (
+        model.use_apis and model.apis_variant != "v3_style_memory"
+    )
+    if needs_acquisition:
+        acquisitions = []
+        for index in indices:
+            record = dataset.records[int(index)]
+            acquisitions.append(record.get("acquisition") or {})
+        if any(acquisitions):
+            model.fit_acquisition_encoder(acquisitions)
+    if model.use_cdt:
+        sample_ids = [str(dataset.records[int(index)]["folder"]) for index in indices]
+        covariates = train_subset.covariates
+        model.cdt.initialize(
+            sample_ids=sample_ids,
+            subject_ids=[str(dataset.subject_ids[int(i)]) for i in indices],
+            labels=[int(dataset.labels[int(i)]) for i in indices],
+            age=covariates[:, 0].tolist(),
+            sex=covariates[:, 1].tolist(),
+            education=covariates[:, 2].tolist(),
+        )
+        model.cdt.age_bandwidth = float(ds.get("age_bandwidth", 1.0))
+        model.cdt.education_bandwidth = float(ds.get("education_bandwidth", 1.0))
+        model.cdt.cross_sex_rho = float(ds.get("cross_sex_rho", 0.5))
+        model.cdt.ema_beta = float(ds.get("ema_beta", 0.9))
+        model.cdt.ess_ratio_min = float(ds.get("ess_ratio_min", 0.2))
+        model.cdt.kl_lambda = float(ds.get("lambda_kl", 0.05))
     model.prototype_bank.min_subjects = int(ds.get("prototype_min_subjects", 8))
 
 
@@ -167,10 +179,10 @@ def run_dual_shift_epoch(
             cdt_enabled=schedule["cdt_enabled"],
             alpha=schedule["alpha"],
         )
-        if schedule["cdt_enabled"]:
-            model.cdt.recompute_weights(force_uniform=False)
-        else:
-            model.cdt.recompute_weights(force_uniform=True)
+        if model.use_cdt:
+            model.cdt.recompute_weights(
+                force_uniform=not bool(schedule["cdt_enabled"])
+            )
     else:
         model.set_phase(apis_active=False, cdt_enabled=False, alpha=0.0)
 
@@ -184,6 +196,14 @@ def run_dual_shift_epoch(
     count = 0
     intervention_penalty_sum = 0.0
     valid_intervention_sum = 0.0
+    apic_audit_keys = (
+        "apis_feature_strength",
+        "style_confidence",
+        "style_entropy",
+        "style_delta",
+        "condition_gate",
+    )
+    apic_audit_sums = {key: 0.0 for key in apic_audit_keys}
     logits_all, labels_all, env_all, subjects, folders = [], [], [], [], []
     field_strengths: List[float] = []
     for raw_batch in loader:
@@ -247,11 +267,12 @@ def run_dual_shift_epoch(
                 optimizer.zero_grad(set_to_none=True)
                 train_loss.backward()
                 optimizer.step()
-                model.cdt.update_losses(
-                    sample_ids,
-                    loss_dict["per_sample_clean"].detach().cpu().tolist(),
-                    loss_dict["per_sample_shift"].detach().cpu().tolist(),
-                )
+                if model.use_cdt:
+                    model.cdt.update_losses(
+                        sample_ids,
+                        loss_dict["per_sample_clean"].detach().cpu().tolist(),
+                        loss_dict["per_sample_shift"].detach().cpu().tolist(),
+                    )
                 tracked = train_loss
                 intervention_penalty_sum += float(loss_dict["intervention"].detach()) * len(
                     batch["label"]
@@ -259,6 +280,12 @@ def run_dual_shift_epoch(
                 frac = extras.get("valid_intervention_frac")
                 if frac is not None:
                     valid_intervention_sum += float(frac.detach()) * len(batch["label"])
+                for key in apic_audit_keys:
+                    value = extras.get(key)
+                    if value is not None:
+                        apic_audit_sums[key] += float(value.detach().mean()) * len(
+                            batch["label"]
+                        )
             else:
                 tracked = F.cross_entropy(outputs.clean_logits, batch["label"])
         batch_size = len(batch["label"])
@@ -291,7 +318,7 @@ def run_dual_shift_epoch(
     )
     if training and schedule.get("update_prototypes"):
         model.end_epoch_update()
-    return {
+    result = {
         "loss": total_loss / max(count, 1),
         "logits": logits_np,
         "labels": labels_np,
@@ -305,3 +332,14 @@ def run_dual_shift_epoch(
         "apis_coefficient_l2": intervention_penalty_sum / max(count, 1),
         "valid_intervention_frac": valid_intervention_sum / max(count, 1),
     }
+    result.update(
+        {key: value / max(count, 1) for key, value in apic_audit_sums.items()}
+    )
+    if getattr(model, "apis_variant", None) == "v3_style_memory":
+        style_valid = getattr(model.apis, "style_valid", None)
+        style_counts = getattr(model.apis, "style_counts", None)
+        if style_valid is not None:
+            result["style_memory_valid_slots"] = int(style_valid.sum().item())
+        if style_counts is not None:
+            result["style_memory_total_assignments"] = float(style_counts.sum().item())
+    return result

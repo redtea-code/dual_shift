@@ -77,6 +77,7 @@ class MetadataDemoAcqBaseline(nn.Module):
         acquisition_out_dim: int = 32,
         fusion_rank: int = 16,
         dropout: float = 0.1,
+        use_demographics: bool = True,
     ):
         super().__init__()
         self.backbone = DualShiftBackbone(base_channels=base_channels)
@@ -87,6 +88,7 @@ class MetadataDemoAcqBaseline(nn.Module):
             demographic_dim=self.demographic_encoder.out_dim,
             rank=int(fusion_rank),
         )
+        self.use_demographics = bool(use_demographics)
         self.acquisition_encoder = AcquisitionDescriptorEncoder(
             out_dim=int(acquisition_out_dim)
         )
@@ -119,12 +121,15 @@ class MetadataDemoAcqBaseline(nn.Module):
             )
         feats = self.backbone(image)["layer4"]
         pooled = self.pool(feats).flatten(1)
-        demo = self.demographic_encoder(
-            covariates,
-            age_missing=age_missing,
-            sex_missing=sex_missing,
-            education_missing=education_missing,
-        )
-        fused = self.fusion(pooled, demo)
+        if self.use_demographics:
+            demo = self.demographic_encoder(
+                covariates,
+                age_missing=age_missing,
+                sex_missing=sex_missing,
+                education_missing=education_missing,
+            )
+            fused = self.fusion(pooled, demo)
+        else:
+            fused = pooled
         acq_feat = self.acquisition_encoder(acquisitions)
         return self.classifier(self.dropout(torch.cat([fused, acq_feat], dim=-1)))

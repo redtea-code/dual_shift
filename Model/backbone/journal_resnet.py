@@ -187,8 +187,12 @@ class LateStageSpatialModulation(nn.Module):
             for dim in (2, 3, 4):
                 if bases.shape[dim] > 1:
                     tv_terms.append(bases.diff(dim=dim).abs().mean())
-        device = self.spatial_bases[0].bases.device
-        dtype = self.spatial_bases[0].bases.dtype
+        if self.spatial_bases:
+            device = self.spatial_bases[0].bases.device
+            dtype = self.spatial_bases[0].bases.dtype
+        else:
+            device = self.norm.weight.device
+            dtype = self.norm.weight.dtype
         journal_tv = (
             torch.stack(tv_terms).mean()
             if tv_terms
@@ -201,7 +205,11 @@ class LateStageSpatialModulation(nn.Module):
                 sparse_terms.append(bank.bases.abs().mean())
             if self.last_gamma is not None:
                 sparse_terms.append(self.last_gamma.abs().mean())
-            losses["journal_sparse"] = torch.stack(sparse_terms).mean()
+            losses["journal_sparse"] = (
+                torch.stack(sparse_terms).mean()
+                if sparse_terms
+                else torch.zeros((), device=device, dtype=dtype)
+            )
         return losses
 
 
@@ -221,7 +229,9 @@ class JournalResNet3D(nn.Module):
     ):
         super().__init__()
         self.inplanes = int(base_channels)
-        self.var_specs = list(var_specs or default_journal_var_specs())
+        self.var_specs = list(
+            default_journal_var_specs() if var_specs is None else var_specs
+        )
         self.conv1 = nn.Conv3d(
             1,
             self.inplanes,
