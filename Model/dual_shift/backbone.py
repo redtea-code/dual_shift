@@ -29,6 +29,7 @@ class DualShiftBackbone(nn.Module):
         self.out_channels = base_channels * 8 * BasicBlock.expansion
         self.layer1_channels = base_channels * BasicBlock.expansion
         self.layer2_channels = base_channels * 2 * BasicBlock.expansion
+        self.layer3_channels = base_channels * 4 * BasicBlock.expansion
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None

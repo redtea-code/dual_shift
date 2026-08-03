@@ -70,6 +70,10 @@ class DualShiftResNet3D(nn.Module):
         use_scan_film: bool = False,
         scan_film_alpha: float = 0.1,
         apis_variant: str = "v2_residual",
+        apis_style_dim: int = 16,
+        apis_memory_size: int = 8,
+        apis_memory_beta: float = 0.95,
+        apis_style_temperature: float = 0.5,
     ):
         super().__init__()
         self.num_classes = int(num_classes)
@@ -105,7 +109,15 @@ class DualShiftResNet3D(nn.Module):
         if self.apis_variant == "v2_residual":
             self.apis = APISModule(**apis_kwargs)
         elif self.apis_variant in APIS_V3_VARIANTS:
-            self.apis = build_apis_v3(self.apis_variant, **apis_kwargs)
+            self.apis = build_apis_v3(
+                self.apis_variant,
+                layer3_channels=self.backbone.layer3_channels,
+                style_dim=apis_style_dim,
+                memory_size=apis_memory_size,
+                memory_beta=apis_memory_beta,
+                temperature=apis_style_temperature,
+                **apis_kwargs,
+            )
         else:
             raise ValueError(
                 f"Unknown apis_variant {self.apis_variant!r}; expected "
@@ -207,6 +219,70 @@ class DualShiftResNet3D(nn.Module):
         clean_logits, clean_embedding, demo = self._heads(
             clean_layer4, covariates, **head_kwargs
         )
+
+        run_style_memory = (
+            self.apis_variant == "v3_style_memory"
+            and self.training
+            and self._apis_active
+            and not force_clean_only
+        )
+        if self.apis_variant == "v3_style_memory":
+            if not run_style_memory:
+                return DualShiftOutput(
+                    clean_logits=clean_logits,
+                    clean_embedding=clean_embedding,
+                    demographic_embedding=demo,
+                    shift_strength=image.new_zeros(()),
+                    extras={
+                        "apis_mode": "v3_style_memory",
+                        "scan_film_strength": scan_film_strength,
+                    },
+                )
+            condition, valid_mask = self.apis.prepare_style_condition(
+                clean_feats["layer1"],
+                clean_feats["layer2"],
+                clean_feats["layer3"],
+                update_memory=True,
+            )
+            shift1, shift2 = self.apis.make_shift_fns(
+                condition, valid_mask=valid_mask
+            )
+            shifted_feats = self.backbone(
+                image,
+                shift_layer1=shift1,
+                shift_layer2=shift2,
+            )
+            shifted_layer4 = shifted_feats["layer4"]
+            if self.use_scan_film and acq_emb is not None:
+                shifted_layer4, _ = self.scan_film(shifted_layer4, acq_emb)
+            shifted_logits, shifted_embedding, _ = self._heads(
+                shifted_layer4, covariates, **head_kwargs
+            )
+            audit = self.apis.audit_tensors(image)
+            valid_frac = valid_mask.float().mean()
+            return DualShiftOutput(
+                clean_logits=clean_logits,
+                shifted_logits=shifted_logits,
+                clean_embedding=clean_embedding,
+                shifted_embedding=shifted_embedding,
+                demographic_embedding=demo,
+                shift_strength=audit["strength"],
+                extras={
+                    "apis_mode": "v3_style_memory",
+                    "apis_coefficient_l2": audit["coefficient_l2"],
+                    "apis_coefficient_l2_per_sample": audit[
+                        "coefficient_l2_per_sample"
+                    ],
+                    "valid_intervention_mask": valid_mask,
+                    "valid_intervention_frac": valid_frac,
+                    "scan_film_strength": scan_film_strength,
+                    "apis_feature_strength": audit["feature_strength"],
+                    "style_confidence": audit["style_confidence"],
+                    "style_entropy": audit["style_entropy"],
+                    "style_delta": audit["style_delta"],
+                    "condition_gate": audit["condition_gate"],
+                },
+            )
 
         run_apis = (
             self.training
