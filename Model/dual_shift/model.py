@@ -8,6 +8,7 @@ import torch.nn as nn
 
 from Model.dual_shift.acquisition_encoder import AcquisitionDescriptorEncoder
 from Model.dual_shift.apis import APISModule
+from Model.dual_shift.apis_v3 import APIS_V3_VARIANTS, build_apis_v3
 from Model.dual_shift.backbone import DualShiftBackbone
 from Model.dual_shift.demographic_encoder import (
     DemographicEncoder,
@@ -68,6 +69,7 @@ class DualShiftResNet3D(nn.Module):
         prototype_min_subjects: int = 8,
         use_scan_film: bool = False,
         scan_film_alpha: float = 0.1,
+        apis_variant: str = "v2_residual",
     ):
         super().__init__()
         self.num_classes = int(num_classes)
@@ -75,6 +77,7 @@ class DualShiftResNet3D(nn.Module):
         self.use_cdt = bool(use_cdt)
         self.use_mixstyle = bool(use_mixstyle)
         self.use_scan_film = bool(use_scan_film)
+        self.apis_variant = str(apis_variant)
         self.backbone = DualShiftBackbone(layers=layers, base_channels=base_channels)
         self.demographic_encoder = DemographicEncoder()
         self.fusion = LowRankDemographicFusion(
@@ -91,14 +94,23 @@ class DualShiftResNet3D(nn.Module):
             self.backbone.out_channels,
             alpha=scan_film_alpha,
         )
-        self.apis = APISModule(
-            layer1_channels=self.backbone.layer1_channels,
-            layer2_channels=self.backbone.layer2_channels,
-            acquisition_dim=acquisition_out_dim,
-            alpha_max=alpha_max,
-            basis_count=apis_basis_count,
-            rank=apis_rank,
-        )
+        apis_kwargs = {
+            "layer1_channels": self.backbone.layer1_channels,
+            "layer2_channels": self.backbone.layer2_channels,
+            "acquisition_dim": acquisition_out_dim,
+            "alpha_max": alpha_max,
+            "basis_count": apis_basis_count,
+            "rank": apis_rank,
+        }
+        if self.apis_variant == "v2_residual":
+            self.apis = APISModule(**apis_kwargs)
+        elif self.apis_variant in APIS_V3_VARIANTS:
+            self.apis = build_apis_v3(self.apis_variant, **apis_kwargs)
+        else:
+            raise ValueError(
+                f"Unknown apis_variant {self.apis_variant!r}; expected "
+                f"'v2_residual' or one of {APIS_V3_VARIANTS}"
+            )
         self.mixstyle1 = MixStyle(p=mixstyle_p, alpha=mixstyle_alpha)
         self.mixstyle2 = MixStyle(p=mixstyle_p, alpha=mixstyle_alpha)
         self.prototype_bank = ProtocolPrototypeBank(min_subjects=prototype_min_subjects)
@@ -257,9 +269,29 @@ class DualShiftResNet3D(nn.Module):
         if bool(getattr(self, "shuffle_acquisition", False)) and acq_emb.shape[0] > 1:
             perm = torch.randperm(acq_emb.shape[0], device=acq_emb.device)
             factual_for_condition = acq_emb[perm]
-        condition = self.apis.protocol_condition(factual_for_condition, safe_target)
+        if self.apis_variant == "v2_residual":
+            condition = self.apis.protocol_condition(
+                factual_for_condition, safe_target
+            )
+        else:
+            condition = self.apis.protocol_condition(
+                factual_for_condition,
+                safe_target,
+                layer1_features=clean_feats["layer1"],
+            )
+        shifted_image = image
+        if hasattr(self.apis, "make_shifted_image"):
+            shifted_image = self.apis.make_shifted_image(
+                image,
+                condition,
+                valid_mask=valid_mask,
+            )
         shift1, shift2 = self.apis.make_shift_fns(condition, valid_mask=valid_mask)
-        shifted_feats = self.backbone(image, shift_layer1=shift1, shift_layer2=shift2)
+        shifted_feats = self.backbone(
+            shifted_image,
+            shift_layer1=shift1,
+            shift_layer2=shift2,
+        )
         shifted_layer4 = shifted_feats["layer4"]
         if self.use_scan_film:
             shifted_layer4, _ = self.scan_film(shifted_layer4, acq_emb)
@@ -276,7 +308,9 @@ class DualShiftResNet3D(nn.Module):
             shift_strength=apis_audit["strength"],
             selected_protocol_index=selected,
             extras={
-                "apis_mode": "observed_protocol_residual",
+                "apis_mode": getattr(
+                    self.apis, "mode_name", "observed_protocol_residual"
+                ),
                 "apis_coefficient_l2": apis_audit["coefficient_l2"],
                 "apis_coefficient_l2_per_sample": apis_audit.get(
                     "coefficient_l2_per_sample"
@@ -285,6 +319,10 @@ class DualShiftResNet3D(nn.Module):
                 "valid_intervention_mask": valid_mask,
                 "valid_intervention_frac": valid_frac,
                 "scan_film_strength": scan_film_strength,
+                "apis_feature_strength": apis_audit.get("feature_strength"),
+                "apis_intensity_strength": apis_audit.get("intensity_strength"),
+                "protocol_distance": apis_audit.get("protocol_distance"),
+                "condition_gate": apis_audit.get("condition_gate"),
             },
         )
 
