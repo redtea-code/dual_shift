@@ -19,6 +19,8 @@ Dual-Shift 实验代码、结构化结果与研究记录仓库。
 - 实验文档分类与完整索引：[`review/README.md`](review/README.md)
 - 实验分析与记录固定模板：[`docs/EXPERIMENT_RECORD_TEMPLATE.md`](docs/EXPERIMENT_RECORD_TEMPLATE.md)
 - Git 协作与实验记录指南：[`docs/GIT_PROJECT_GUIDE_from_local.md`](docs/GIT_PROJECT_GUIDE_from_local.md)
+- Scan-aware 数据现实与当前主张边界：[`docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md`](docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md)
+- Support-aware paired protocol 执行计划：[`review/plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md`](review/plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md)
 - Dual-Shift 模型初步设计：[`Model/DUAL_SHIFT_MODEL_PRELIMINARY_DESIGN.md`](Model/DUAL_SHIFT_MODEL_PRELIMINARY_DESIGN.md)
 
 新增实验文档必须先按主要用途放入 `review/plans/`、`review/records/`、

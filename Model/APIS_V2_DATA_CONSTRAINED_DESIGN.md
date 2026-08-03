@@ -1,5 +1,11 @@
 # APIS v2: data-constrained protocol residual intervention
 
+> Status: implementation reference for the existing APIS v2 code. The current
+> data interpretation, claim boundary, and next-method design are defined in
+> `docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md`. In particular, zero or
+> near-zero NACC protocol variance prevents a bidirectional continuous
+> scan-response claim; this document must not be read as such a claim.
+
 ## Claim boundary
 
 APIS now means **Anatomy-Preserving Interventional Steering**. It is a
