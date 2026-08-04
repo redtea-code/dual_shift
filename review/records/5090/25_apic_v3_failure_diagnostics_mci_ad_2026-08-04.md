@@ -8,7 +8,7 @@
 
 ## 0. 执行摘要（判读顺序 §5）
 
-对 MCI 三个代表性 `apic_v3_x` job 的完整 checkpoint 反事实诊断一致指向 **机制类型 1：干预过弱 / 近恒等映射**，并叠加 **基础过拟合**（类型 6），而不是“有害大扰动”（类型 2）。
+对 MCI **全部 4 个** `seed×direction` 的 `apic_v3_x` job 完整 checkpoint 反事实诊断一致指向 **机制类型 1：干预过弱 / 近恒等映射**，并叠加 **基础过拟合**（类型 6），而不是“有害大扰动”（类型 2）。
 
 | 判据 | 观察 | 结论 |
 | --- | --- | --- |
@@ -60,32 +60,36 @@ python experiments/summarize_apic_v3_diagnostics.py \
 | seed | direction | valid_slots | max slot share | 备注 |
 | --- | --- | ---: | ---: | --- |
 | 43 | A→N | 8 | **99.5%** | counts `[…, 8845]` |
+| 43 | N→A | 8 | **99.0%** | counts `[…, 2690]`（补跑 layer-2） |
 | 42 | A→N | 8 | **92.3%** | 选点 epoch 6；诊断 NMI 全 `null`（实质单 prototype 分配） |
 | 42 | N→A | 8 | 42.4% | 分配相对更散，但扰动仍≈0 |
 
-## 2. Layer-2：checkpoint 样本级诊断
+## 2. Layer-2：checkpoint 样本级诊断（MCI 4/4 完成）
 
 配置：`journal_dual_shift_apic_v3_screen_mci_ad_remote.yaml`（path remap only；hash 与 manifest 在设置 job seed 后匹配，**未**使用 `--allow-config-hash-mismatch`）。
 
-预检：`seed43/adni_to_nacc --max-samples 32` → exit 0，clean 概率与正式 CSV 差 <1e-5。
+预检：`seed43/adni_to_nacc` 与 `seed43/nacc_to_adni` 均 `--max-samples 32` → exit 0；clean 概率与正式 CSV 差 <1e-5。
 
-完整四 split（exit 0）：
+完整四 split（exit 0；每 job **1322** 样本行）：
 
-| job | ckpt ep | ckpt SHA-256 (前16) |
-| --- | ---: | --- |
-| seed43 A→N（最差） | 27 | `c580b54ebb5ddcf6…` |
-| seed42 A→N（相对较好，胜 ce） | 6 | `80930580362c680a…` |
-| seed42 N→A | 19 | `75ec39b014c3dfec…` |
+| job | ckpt ep | ckpt SHA-256 (前16) | 样本 CSV |
+| --- | ---: | --- | --- |
+| seed43 A→N（最差 Δmix） | 27 | `c580b54ebb5ddcf6…` | `checkpoint/seed43_adni_to_nacc/` |
+| seed43 N→A（补齐） | 12 | `705fa199ad09d6d1…` | `checkpoint/seed43_nacc_to_adni/` |
+| seed42 A→N（相对较好，胜 ce） | 6 | `80930580362c680a…` | `checkpoint/seed42_adni_to_nacc/` |
+| seed42 N→A | 19 | `75ec39b014c3dfec…` | `checkpoint/seed42_nacc_to_adni/` |
 
 ### 2.1 反事实扰动与 flip（target / source）
 
-三 job × 四 split 共性：
+四 job × 四 split 共性：
 
 - `prediction_flip_rate = 0`
 - `layer1_relative_rms` mean ∈ `[3.7e-8, 3.7e-7]`
 - `layer2_relative_rms` mean ∈ `[8.4e-5, 1.2e-4]`
 - `js_divergence` mean ~ `1e-9`
 - **clean_metrics ≡ shifted_metrics**（BA/AUC/SEN 完全一致）
+
+seed43 N→A（补齐）target：clean BA = shifted BA = **0.574**，flip=0，layer1 RMS **1.8e-7**，layer2 RMS **1.0e-4**。
 
 → 即使 `alpha_max=0.25` 且 gate≈0.025–0.05，**shifted path 不改变疾病预测**。
 
@@ -94,6 +98,7 @@ python experiments/summarize_apic_v3_diagnostics.py \
 | job | split | label | field_strength | manufacturer | sequence_family |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | seed43 A→N | 0.037 | 0.010 | 0.053 | 0.024 | 0.000 |
+| seed43 N→A | 0.002 | 0.008 | 0.002 | 0.004 | 0.000 |
 | seed42 A→N | null | null | null | null | null |
 | seed42 N→A | 0.028 | 0.021 | 0.033 | 0.046 | 0.001 |
 
@@ -102,17 +107,12 @@ NMI 低；**不是**“style 混入诊断标签主导”。seed42 A→N 的 null
 ### 2.3 过拟合信号
 
 以 seed43 A→N 为例：source_train BA **0.985** vs source_val **0.594** / source_test **0.573**；target clean BA 0.625（scan 级汇总；subject-mean 正式表为 0.632）。  
+seed43 N→A：train **0.986** vs target **0.574**。  
 seed42 N→A：train 0.997 vs test 0.653，target sens 仅 0.284。
 
 ## 3. 与 CN（3090 记录）的交叉阅读
 
-本机无 CN checkpoint；`review/records/3090` 日志中最差单元 **CN seed43 NACC→ADNI** 同样显示：
-
-- `valid_frac=1.0`
-- `apis_l2`：ep6 `7.0e-6` → ep50 `1.3e-6`（衰减，虽不如 MCI 极端）
-- 正式表 ΔBA vs ce **−0.174**
-
-与 MCI 机制叙事兼容（干预偏弱 + 任务不稳），但 **CN 的 layer-2 仍须在 3090 原机按 ops/24 用对应 remote YAML 补跑** 后才能并表。
+本机无 CN checkpoint。3090 已回传 layer-2：`review/records/3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md`（seed43 N→A / A→N）。结论同为 **§5-1 近恒等**（flip≈0，layer RMS~1e-6/1e-4），与 MCI 4/4 一致。
 
 ## 4. 综合诊断
 
@@ -127,14 +127,13 @@ seed42 N→A：train 0.997 vs test 0.653，target sens 仅 0.284。
 | --- | --- |
 | layer1 stdout / exit 0 | ✅ `history/layer1_stdout.txt` |
 | `apic_v3_history_summary.csv/json` + epoch csv | ✅ `history/` |
-| layer2 stdout / exit 0（3 jobs） | ✅ `layer2_*_stdout.txt` |
-| `diagnostic_summary.json` + `sample_diagnostics.csv` | ✅ `checkpoint/*/` |
+| layer2 stdout / exit 0（**4/4 MCI jobs**） | ✅ 含补齐的 `layer2_seed43_nacc_to_adni_*.txt` |
+| `diagnostic_summary.json` + `sample_diagnostics.csv` | ✅ `checkpoint/{seed42,43}_{adni_to_nacc,nacc_to_adni}/` |
 | config / manifest / ckpt SHA-256 | ✅ `artifact_sha256.json`（ckpt 仅哈希，未入库） |
 | GPU / torch / CUDA / git | ✅ `ENVIRONMENT.md` |
-| CN layer-2 | ❌ 需 3090 |
+| CN layer-2 | ✅ 见 `review/records/3090/apic_v3_failure_diagnostics/` |
 
 ## 6. 建议的下一步（不在本轮执行）
 
-- 在 3090 对 CN seed43 N→A / A→N 补跑 layer-2，确认是否同为近恒等。  
 - 协议层讨论：提高有效干预下界、memory 均衡约束、或选点指标；**须新 revision**，不得原地改本轮结果。  
 - 在修复前不扩 seed、不启 X+D。

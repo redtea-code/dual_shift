@@ -7,6 +7,6 @@ See companion write-up:
 Layout:
 
 - `history/` — layer-1 `summarize_apic_v3_diagnostics.py` outputs
-- `checkpoint/<seed>_<direction>/` — layer-2 `diagnostic_summary.json` + `sample_diagnostics.csv`
+- `checkpoint/<seed>_<direction>/` — layer-2 for all 4 MCI cells (`seed{42,43}_{adni_to_nacc,nacc_to_adni}`)
 - `artifact_sha256.json` — config / manifest / checkpoint hashes (checkpoints not committed)
 - `ENVIRONMENT.md` — host / torch / git
