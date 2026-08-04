@@ -78,6 +78,10 @@ class DualShiftResNet3D(nn.Module):
         apis_style_temperature: float = 0.5,
         apis_rms_min: float = 0.001,
         apis_rms_max: float = 0.05,
+        apis_delta_min: float = 0.02,
+        apis_delta_max: float = 0.50,
+        apis_g_min: float = 0.20,
+        apis_g_max: float = 0.80,
     ):
         super().__init__()
         self.num_classes = int(num_classes)
@@ -121,6 +125,10 @@ class DualShiftResNet3D(nn.Module):
                 temperature=apis_style_temperature,
                 rms_min=apis_rms_min,
                 rms_max=apis_rms_max,
+                delta_min=apis_delta_min,
+                delta_max=apis_delta_max,
+                g_min=apis_g_min,
+                g_max=apis_g_max,
                 **apis_kwargs,
             )
         elif self.apis_variant in APIS_V3_VARIANTS:
@@ -165,7 +173,11 @@ class DualShiftResNet3D(nn.Module):
             # The teacher is copied exactly once, at the clean -> APIC boundary.
             self.apis.freeze_teacher(self.backbone)
         if self.apis_variant in APIC_V3_2_VARIANTS and self._apis_active:
-            self.apis.finalize_style_bank()
+            self.apis.finalize_style_bank(strict=True)
+            if not self.apis.finalized:
+                raise RuntimeError(
+                    "APIC v3_2 mechanism_calibration did not support two style slots"
+                )
         self.cdt.enabled = bool(cdt_enabled) and self.use_cdt
         # MixStyle only during training forward; keep modules activated flag aligned.
         self.mixstyle1.set_activated(self.use_mixstyle)
@@ -217,7 +229,6 @@ class DualShiftResNet3D(nn.Module):
         sex_missing: Optional[torch.Tensor] = None,
         education_missing: Optional[torch.Tensor] = None,
     ) -> DualShiftOutput:
-        del sample_ids  # reserved for trainer-side CDT bookkeeping
         head_kwargs = {
             "age_missing": age_missing,
             "sex_missing": sex_missing,
@@ -240,7 +251,13 @@ class DualShiftResNet3D(nn.Module):
                 extras={"mixstyle": True},
             )
 
-        clean_feats = self.backbone(image)
+        paired_v3_2 = bool(
+            self.apis_variant in APIC_V3_2_VARIANTS
+            and self.training
+            and self._apis_active
+            and not force_clean_only
+        )
+        clean_feats = self.backbone(image, capture_bn_moments=paired_v3_2)
         acq_emb = None
         scan_film_strength = image.new_zeros(())
         if (
@@ -253,9 +270,20 @@ class DualShiftResNet3D(nn.Module):
             scan_film_strength = film_per_sample.mean()
         else:
             clean_layer4 = clean_feats["layer4"]
+        head_rng = None
+        if paired_v3_2 and self.training and self.dropout.p > 0:
+            head_rng = {
+                "cpu_before": torch.random.get_rng_state(),
+                "cuda_before": torch.cuda.get_rng_state(image.device) if image.is_cuda else None,
+            }
         clean_logits, clean_embedding, demo = self._heads(
             clean_layer4, covariates, **head_kwargs
         )
+        if head_rng is not None:
+            head_rng["cpu_after"] = torch.random.get_rng_state()
+            head_rng["cuda_after"] = (
+                torch.cuda.get_rng_state(image.device) if image.is_cuda else None
+            )
 
         # Collect source-only descriptors during clean warm-up.  The collection
         # is detached and finalized when the APIC phase begins.
@@ -267,9 +295,11 @@ class DualShiftResNet3D(nn.Module):
             if self.apis.teacher is not None:
                 with torch.no_grad():
                     teacher_l1, teacher_l2 = self.apis.teacher(image)
-                self.apis.observe_source(teacher_l1, teacher_l2)
+                self.apis.observe_source(teacher_l1, teacher_l2, subject_ids=subject_ids)
             else:
-                self.apis.observe_source(clean_feats["layer1"], clean_feats["layer2"])
+                self.apis.observe_source(
+                    clean_feats["layer1"], clean_feats["layer2"], subject_ids=subject_ids
+                )
 
         run_style_memory = (
             self.apis_variant in {"v3_style_memory", *APIC_V3_2_VARIANTS}
@@ -298,7 +328,10 @@ class DualShiftResNet3D(nn.Module):
                 )
             else:
                 condition, valid_mask = self.apis.prepare_style_condition(
-                    image, clean_feats["layer1"], clean_feats["layer2"]
+                    image,
+                    clean_feats["layer1"],
+                    clean_feats["layer2"],
+                    sample_ids=sample_ids,
                 )
             shift1, shift2 = self.apis.make_shift_fns(
                 condition, valid_mask=valid_mask
@@ -308,13 +341,30 @@ class DualShiftResNet3D(nn.Module):
                 shift_layer1=shift1,
                 shift_layer2=shift2,
                 update_bn_stats=self.apis_variant not in APIC_V3_2_VARIANTS,
+                paired_bn_moments=clean_feats.get("bn_moments"),
             )
             shifted_layer4 = shifted_feats["layer4"]
             if self.use_scan_film and acq_emb is not None:
                 shifted_layer4, _ = self.scan_film(shifted_layer4, acq_emb)
-            shifted_logits, shifted_embedding, _ = self._heads(
-                shifted_layer4, covariates, **head_kwargs
-            )
+            if head_rng is not None:
+                torch.random.set_rng_state(head_rng["cpu_before"])
+                if image.is_cuda:
+                    torch.cuda.set_rng_state(head_rng["cuda_before"], image.device)
+            try:
+                shifted_logits, shifted_embedding, _ = self._heads(
+                    shifted_layer4, covariates, **head_kwargs
+                )
+            finally:
+                if head_rng is not None:
+                    torch.random.set_rng_state(head_rng["cpu_after"])
+                    if image.is_cuda:
+                        torch.cuda.set_rng_state(head_rng["cuda_after"], image.device)
+            if self.apis_variant in APIC_V3_2_VARIANTS:
+                # Unsupported rows are a strict final-output fallback.  This is
+                # stronger than relying on a zero residual inside a mixed batch.
+                mask = valid_mask.reshape(-1, 1)
+                shifted_logits = torch.where(mask, shifted_logits, clean_logits)
+                shifted_embedding = torch.where(mask, shifted_embedding, clean_embedding)
             audit = self.apis.audit_tensors(image)
             valid_frac = valid_mask.float().mean()
             return DualShiftOutput(
@@ -342,6 +392,8 @@ class DualShiftResNet3D(nn.Module):
                         "style_target_error_per_sample"
                     ),
                     "apis_rms_per_sample": audit.get("realized_per_sample"),
+                    "apis_rms_layer1_per_sample": audit.get("rms_layer1_per_sample"),
+                    "apis_rms_layer2_per_sample": audit.get("rms_layer2_per_sample"),
                     "apis_effective_slots": audit.get("effective_slots"),
                     "apis_max_slot_share": audit.get("max_slot_share"),
                 },

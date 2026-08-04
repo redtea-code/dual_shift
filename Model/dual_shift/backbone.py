@@ -1,10 +1,11 @@
 """ResNet3D backbone with APIS hooks after layer1/layer2."""
 from __future__ import annotations
 
-from typing import Callable, Optional, Sequence
+from typing import Callable, Dict, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from Model.backbone.film_backbone import BasicBlock
 
@@ -63,12 +64,59 @@ class DualShiftBackbone(nn.Module):
         shift_layer1: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         shift_layer2: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         update_bn_stats: bool = True,
+        capture_bn_moments: bool = False,
+        paired_bn_moments: Optional[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = None,
     ) -> dict:
-        # A shifted continuation must not update BN running statistics a second
-        # time for APIC v3_2.  BN affine parameters still receive gradients in
-        # eval mode, while the original training flags are restored afterward.
+        """Run the backbone, optionally capturing or replaying BN batch moments.
+
+        APIC v3_2 uses the moments measured on the paired clean pass for every
+        shifted BN layer.  Replaying running moments is not equivalent and can
+        manufacture a branch difference even when the intervention is zero.
+        """
+        if capture_bn_moments and paired_bn_moments is not None:
+            raise ValueError("capture_bn_moments and paired_bn_moments are exclusive")
+        captured: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
+        handles = []
+        named_bn = {
+            name: module
+            for name, module in self.named_modules()
+            if isinstance(module, nn.modules.batchnorm._BatchNorm)
+        }
+        if capture_bn_moments:
+            for name, module in named_bn.items():
+                def capture(mod, inputs, *, key=name):
+                    value = inputs[0]
+                    dims = (0,) + tuple(range(2, value.ndim))
+                    captured[key] = (
+                        value.mean(dim=dims).detach(),
+                        value.var(dim=dims, unbiased=False).detach(),
+                    )
+
+                handles.append(module.register_forward_pre_hook(capture))
+        elif paired_bn_moments is not None:
+            missing = sorted(set(named_bn) - set(paired_bn_moments))
+            if missing:
+                raise ValueError(f"paired BN moments missing layers: {missing}")
+            for name, module in named_bn.items():
+                def replay(mod, inputs, output, *, key=name):
+                    del output
+                    mean, variance = paired_bn_moments[key]
+                    value = inputs[0]
+                    return F.batch_norm(
+                        value,
+                        mean.to(value.device, value.dtype),
+                        variance.to(value.device, value.dtype),
+                        mod.weight,
+                        mod.bias,
+                        training=False,
+                        momentum=0.0,
+                        eps=mod.eps,
+                    )
+
+                handles.append(module.register_forward_hook(replay))
+
         states = []
-        if not update_bn_stats and self.training:
+        if (not update_bn_stats or paired_bn_moments is not None) and self.training:
             for module in self.modules():
                 if isinstance(module, nn.modules.batchnorm._BatchNorm):
                     states.append((module, module.training))
@@ -83,7 +131,12 @@ class DualShiftBackbone(nn.Module):
                 f2 = shift_layer2(f2)
             f3 = self.layer3(f2)
             f4 = self.layer4(f3)
-            return {"layer1": f1, "layer2": f2, "layer3": f3, "layer4": f4}
+            result = {"layer1": f1, "layer2": f2, "layer3": f3, "layer4": f4}
+            if capture_bn_moments:
+                result["bn_moments"] = captured
+            return result
         finally:
+            for handle in handles:
+                handle.remove()
             for module, state in states:
                 module.training = state

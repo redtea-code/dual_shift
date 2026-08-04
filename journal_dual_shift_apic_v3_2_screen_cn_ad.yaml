@@ -83,6 +83,10 @@ dual_shift:
   lambda_rms: 0.1
   rms_min: 0.001
   rms_max: 0.05
+  delta_min: 0.02
+  delta_max: 0.50
+  g_min: 0.20
+  g_max: 0.80
   apis_basis_count: 4
   apis_rank: 8
   apis_style_dim: 16

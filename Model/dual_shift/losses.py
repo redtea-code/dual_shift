@@ -109,8 +109,20 @@ def compute_dual_shift_loss(
             shift_weights = sample_weights.to(clean_logits.device).reshape(-1) * mask
         apis_active = bool(float(mask.sum().detach()) > 0.0)
     if apis_active and shifted_logits is not None:
-        shift_ce = _weighted_ce(shifted_logits, labels, shift_weights, class_weights)
-        js = js_divergence(clean_logits, shifted_logits, shift_weights)
+        clean_per = F.cross_entropy(clean_logits, labels, weight=class_weights, reduction="none")
+        shift_per = F.cross_entropy(shifted_logits, labels, weight=class_weights, reduction="none")
+        mask = intervention_mask.to(clean_logits.device, dtype=clean_per.dtype) if intervention_mask is not None else torch.ones_like(clean_per)
+        base_weights = torch.ones_like(clean_per) if sample_weights is None else sample_weights.to(clean_logits.device).reshape(-1)
+        denom = base_weights.sum().clamp_min(1e-8)
+        if v3_2_mode:
+            # Every sample contributes once; supported rows use the mean of the
+            # factual and shifted CE, while unsupported rows are exact clean CE.
+            shift_ce = (((1.0 - mask) * clean_per + mask * 0.5 * (clean_per + shift_per)) * base_weights).sum() / denom
+            js_per = 0.5 * (F.kl_div(F.log_softmax(clean_logits, 1), F.softmax(shifted_logits, 1), reduction="none").sum(1) + F.kl_div(F.log_softmax(shifted_logits, 1), F.softmax(clean_logits, 1), reduction="none").sum(1))
+            js = (js_per * mask * base_weights).sum() / denom
+        else:
+            shift_ce = _weighted_ce(shifted_logits, labels, shift_weights, class_weights)
+            js = js_divergence(clean_logits, shifted_logits, shift_weights)
         losses["shift_ce"] = shift_ce
         losses["js"] = js
         if v3_2_mode:
@@ -148,13 +160,13 @@ def compute_dual_shift_loss(
         if v3_2_mode:
             if style_target_error_per_sample is not None:
                 target_error = style_target_error_per_sample.to(clean_logits.device).reshape(-1)
-                losses["style"] = _weighted_mean(target_error, shift_weights)
+                losses["style"] = (target_error * base_weights * mask).sum() / denom
                 total = total + float(lambda_style) * losses["style"]
             if rms_per_sample is not None:
                 rms = rms_per_sample.to(clean_logits.device).reshape(-1)
                 band = F.relu(float(rms_min) - rms).square() + F.relu(rms - float(rms_max)).square()
-                losses["rms_band"] = _weighted_mean(band, shift_weights)
-                total = total + float(lambda_rms) * losses["rms_band"]
+                # RMS band is a mechanism audit, not a trainable objective.
+                losses["rms_band"] = (band * base_weights * mask).sum() / denom
     with torch.no_grad():
         losses["per_sample_clean"] = F.cross_entropy(
             clean_logits, labels, reduction="none"

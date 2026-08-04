@@ -568,6 +568,10 @@ def _make_model(config, num_classes, variant):
             apis_style_temperature=float(ds.get("apis_style_temperature", 0.5)),
             apis_rms_min=float(ds.get("rms_min", 0.001)),
             apis_rms_max=float(ds.get("rms_max", 0.05)),
+            apis_delta_min=float(ds.get("delta_min", 0.02)),
+            apis_delta_max=float(ds.get("delta_max", 0.50)),
+            apis_g_min=float(ds.get("g_min", 0.20)),
+            apis_g_max=float(ds.get("g_max", 0.80)),
         )
         model.shuffle_acquisition = bool(base_variant == "apis_v2_shuffle")
         return model
@@ -919,7 +923,7 @@ def _patch_gamma_summary(model):
     return summary
 
 
-def _selection_key(result, config, *, variant: str | None = None):
+def _selection_key(result, config, *, variant: str | None = None, selection_history=None):
     """Select checkpoints on subject-aggregated validation metrics.
 
     Dual-shift variants use the designed composite source-validation score when
@@ -953,6 +957,22 @@ def _selection_key(result, config, *, variant: str | None = None):
     if not np.isfinite(auc):
         composite = -float(result["loss"])
     score_tuple = (1, composite) if np.isfinite(auc) else (0, composite)
+
+    # Revision-4 APIC v3_2 uses one performance selector for all three methods:
+    # a three-epoch EMA of subject-level balanced accuracy.  Mechanism health
+    # is audited after this unique checkpoint is selected, never used to retry
+    # selection.
+    if config.get("apic_v3_2_screening") is not None:
+        history = list(selection_history or []) + [balanced_accuracy]
+        window = history[-3:]
+        ema = float(np.mean(window)) if window else -float("inf")
+        result["performance_selector"] = {
+            "metric": "subject_balanced_accuracy",
+            "window": 3,
+            "ema": ema,
+            "current": balanced_accuracy,
+        }
+        return (1 if len(window) >= 3 and np.isfinite(ema) else 0, ema)
 
     ds = config.get("dual_shift") or {}
     guard = ds.get("collapse_guard") or {}
@@ -1127,6 +1147,7 @@ def _train_variant(
     checkpoint_path = variant_dir / "best_checkpoint.pt"
     best_key = None
     history = []
+    selection_history = []
     for epoch in range(int(config["training"]["epochs"])):
         if dual_shift:
             train_result = run_dual_shift_epoch(
@@ -1171,7 +1192,10 @@ def _train_variant(
                 class_weights=None,
                 variant=variant,
             )
-        key = _selection_key(val_result, config, variant=variant)
+        key = _selection_key(
+            val_result, config, variant=variant, selection_history=selection_history
+        )
+        selection_history.append(float((val_result.get("performance_selector") or {}).get("current", float("nan"))))
         history.append(
             {
                 "epoch": epoch + 1,
@@ -1233,6 +1257,7 @@ def _train_variant(
                     "val_loss": val_result["loss"],
                     "seed": int(config["seed"]),
                     "collapse_guard": val_result.get("collapse_guard"),
+                    "performance_selector": val_result.get("performance_selector"),
                 },
             }
             if dual_shift:

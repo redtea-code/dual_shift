@@ -7,6 +7,7 @@ APIC v3.  It never consumes acquisition metadata or target-domain statistics.
 from __future__ import annotations
 
 import copy
+import hashlib
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -71,6 +72,10 @@ class FixedStyleBankAPICV32(nn.Module):
         temperature: float = 0.5,
         rms_min: float = 0.001,
         rms_max: float = 0.05,
+        delta_min: float = 0.02,
+        delta_max: float = 0.50,
+        g_min: float = 0.20,
+        g_max: float = 0.80,
         min_cluster_count: int = 2,
         max_observed: int = 20000,
     ) -> None:
@@ -80,19 +85,24 @@ class FixedStyleBankAPICV32(nn.Module):
         self.variant = "v3_2_balanced_style_memory"
         self.layer1_channels = int(layer1_channels)
         self.layer2_channels = int(layer2_channels)
-        self.raw_dim = 4 * (self.layer1_channels + self.layer2_channels)
+        self.raw_dim = 2 * (self.layer1_channels + self.layer2_channels)
         self.style_dim = int(min(style_dim, self.raw_dim))
         self.memory_size = int(memory_size)
         self.temperature = float(max(temperature, 1e-3))
         self.alpha_max = float(alpha_max)
         self.rms_min = float(rms_min)
         self.rms_max = float(rms_max)
+        self.delta_min = float(delta_min)
+        self.delta_max = float(delta_max)
+        self.g_min = float(g_min)
+        self.g_max = float(g_max)
         self.min_cluster_count = int(min_cluster_count)
         self.max_observed = int(max_observed)
         self.enabled = True
         self.current_alpha = 0.0
         self.teacher: Optional[StyleTeacher] = None
-        self._observed: list[torch.Tensor] = []
+        self._observed_fit: list[tuple[torch.Tensor, list[str]]] = []
+        self._observed_calibration: list[tuple[torch.Tensor, list[str]]] = []
         self._observed_count = 0
         self._finalized = False
         self._state: Dict[str, torch.Tensor] = {}
@@ -126,23 +136,35 @@ class FixedStyleBankAPICV32(nn.Module):
     def _descriptor(layer1: torch.Tensor, layer2: torch.Tensor) -> torch.Tensor:
         def one(features: torch.Tensor) -> torch.Tensor:
             mean, std = _stats(features)
-            padded = F.pad(features, (1, 1, 1, 1, 1, 1), mode="replicate")
-            low = F.avg_pool3d(padded, kernel_size=3, stride=1)
-            high = features - low
-            low_e = low.float().square().mean(dim=(2, 3, 4)).sqrt().to(mean.dtype)
-            high_e = high.float().square().mean(dim=(2, 3, 4)).sqrt().to(mean.dtype)
-            return torch.cat([mean, std, low_e, high_e], dim=1)
+            return torch.cat([mean, std.log()], dim=1)
 
         return torch.cat([one(layer1), one(layer2)], dim=1)
 
-    def observe_source(self, layer1: torch.Tensor, layer2: torch.Tensor) -> None:
-        """Collect clean source descriptors before the bank is frozen."""
+    def observe_source(self, layer1: torch.Tensor, layer2: torch.Tensor, *, subject_ids=None) -> None:
+        """Collect descriptors into deterministic subject-disjoint fit/calibration sets."""
         if self._finalized or self._observed_count >= self.max_observed:
             return
         value = self._descriptor(layer1.detach(), layer2.detach()).float().cpu()
         remaining = self.max_observed - self._observed_count
-        self._observed.append(value[:remaining])
-        self._observed_count += int(min(value.shape[0], remaining))
+        value = value[:remaining]
+        if subject_ids is None:
+            # Direct module tests and synthetic probes have no split manifest;
+            # retain their historical source-only behavior.
+            self._observed_fit.append((value, [f"sample-{self._observed_count + i}" for i in range(len(value))]))
+            self._observed_count += len(value)
+            return
+        ids = [str(x) for x in subject_ids][:len(value)]
+        fit, calibration, fit_ids, calibration_ids = [], [], [], []
+        for index, subject in enumerate(ids):
+            # Fixed 80/20 split by subject hash; no validation/target signal.
+            is_cal = int(hashlib.sha256(subject.encode("utf-8")).hexdigest()[:8], 16) % 5 == 0
+            (calibration if is_cal else fit).append(value[index])
+            (calibration_ids if is_cal else fit_ids).append(subject)
+        if fit:
+            self._observed_fit.append((torch.stack(fit), fit_ids))
+        if calibration:
+            self._observed_calibration.append((torch.stack(calibration), calibration_ids))
+        self._observed_count += len(value)
 
     @torch.no_grad()
     def freeze_teacher(self, backbone: nn.Module) -> None:
@@ -152,7 +174,8 @@ class FixedStyleBankAPICV32(nn.Module):
             # Warm-up student descriptors use train-mode BN statistics and are
             # intentionally discarded.  B0 rebuilds the bank with this frozen
             # teacher in eval mode.
-            self._observed.clear()
+            self._observed_fit.clear()
+            self._observed_calibration.clear()
             self._observed_count = 0
 
     @staticmethod
@@ -182,13 +205,29 @@ class FixedStyleBankAPICV32(nn.Module):
         return centers, assignment
 
     @torch.no_grad()
-    def finalize_style_bank(self) -> None:
+    def finalize_style_bank(self, *, strict: bool = False) -> None:
         if self._finalized:
             return
-        if not self._observed:
+        if not self._observed_fit:
+            if strict:
+                raise RuntimeError("APIC v3_2 mechanism_fit is empty")
             self._finalized = False
             return
-        raw = torch.cat(self._observed, dim=0).float()
+        def subject_means(records):
+            values = torch.cat([item[0] for item in records], dim=0).float()
+            ids = sum((item[1] for item in records), [])
+            groups = {}
+            for index, subject in enumerate(ids):
+                groups.setdefault(subject, []).append(index)
+            return torch.stack([values[indexes].mean(dim=0) for indexes in groups.values()])
+
+        raw = subject_means(self._observed_fit)
+        calibration = subject_means(self._observed_calibration) if self._observed_calibration else raw
+        if raw.shape[0] < self.memory_size * self.min_cluster_count:
+            if strict:
+                raise RuntimeError("APIC v3_2 mechanism_fit has insufficient subject support")
+            self._finalized = False
+            return
         center = raw.median(dim=0).values
         scale = (raw - center).abs().median(dim=0).values.clamp_min(1e-4)
         normalized = (raw - center) / scale
@@ -225,27 +264,37 @@ class FixedStyleBankAPICV32(nn.Module):
             count = int(mask.sum().item())
             if count < self.min_cluster_count and raw.shape[0] >= self.memory_size:
                 continue
-            self.style_valid[slot] = True
+            self.style_valid[slot] = bool(count >= self.min_cluster_count)
             self.style_counts[slot] = float(count)
-            distances = (projected[mask] - prototypes[slot]).square().sum(dim=1).sqrt()
-            self.prototype_radii[slot] = float(distances.quantile(0.95).clamp_min(1e-3).item())
+            if bool(self.style_valid[slot]):
+                distances = (projected[mask] - prototypes[slot]).square().sum(dim=1).sqrt()
+                self.prototype_radii[slot] = float(distances.quantile(0.95).clamp_min(1e-3).item())
         # Store raw-stat targets by recovering the descriptor fields from each cluster.
-        raw_dim1 = 4 * self.layer1_channels
+        raw_dim1 = 2 * self.layer1_channels
         for slot in range(self.memory_size):
             mask = assignments == slot
             if not bool(mask.any()):
                 continue
             mean = raw[mask].mean(dim=0)
-            m1, s1, low1, high1 = torch.split(mean[:raw_dim1], self.layer1_channels, dim=0)
+            m1, s1 = torch.split(mean[:raw_dim1], self.layer1_channels, dim=0)
             offset = raw_dim1
-            m2, s2, low2, high2 = torch.split(mean[offset:], self.layer2_channels, dim=0)
-            del low1, high1, low2, high2
+            m2, s2 = torch.split(mean[offset:], self.layer2_channels, dim=0)
             self.prototype_mu1[slot].copy_(m1.to(self.prototype_mu1.device))
-            self.prototype_logstd1[slot].copy_(s1.clamp_min(1e-4).log().to(self.prototype_logstd1.device))
+            self.prototype_logstd1[slot].copy_(s1.to(self.prototype_logstd1.device))
             self.prototype_mu2[slot].copy_(m2.to(self.prototype_mu2.device))
-            self.prototype_logstd2[slot].copy_(s2.clamp_min(1e-4).log().to(self.prototype_logstd2.device))
-        self._finalized = bool(self.style_valid.sum().item() >= 2)
-        self._observed.clear()
+            self.prototype_logstd2[slot].copy_(s2.to(self.prototype_logstd2.device))
+        calibration_norm = (calibration - center) / scale
+        calibration_projected = (calibration_norm - normalized.mean(dim=0, keepdim=True)) @ components.t()
+        cal_assignment = (calibration_projected[:, None] - prototypes[None]).square().sum(dim=2).argmin(dim=1)
+        cal_counts = torch.bincount(cal_assignment, minlength=self.memory_size)
+        for slot in range(self.memory_size):
+            mask = cal_assignment == slot
+            if bool(mask.any()) and bool(self.style_valid[slot]):
+                radius = (calibration_projected[mask] - prototypes[slot]).square().sum(dim=1).sqrt().quantile(0.95)
+                self.prototype_radii[slot] = radius.clamp_min(1e-3)
+        self._finalized = bool(self.style_valid.sum().item() >= 2 and (cal_counts > 0).sum().item() >= 2)
+        self._observed_fit.clear()
+        self._observed_calibration.clear()
 
     @torch.no_grad()
     def _teacher_stats(self, image: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -263,10 +312,12 @@ class FixedStyleBankAPICV32(nn.Module):
         image: torch.Tensor,
         student_layer1: torch.Tensor,
         student_layer2: torch.Tensor,
+        *,
+        sample_ids=None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if not self._finalized:
-            self.observe_source(student_layer1, student_layer2)
-            self.finalize_style_bank()
+            self.observe_source(student_layer1, student_layer2, subject_ids=sample_ids)
+            self.finalize_style_bank(strict=False)
         if not self._finalized:
             valid = image.new_zeros((image.shape[0],), dtype=torch.bool)
             self._state = {"gate": image.new_zeros((image.shape[0],))}
@@ -288,14 +339,25 @@ class FixedStyleBankAPICV32(nn.Module):
         # Pick the nearest different supported prototype.  With K=4 this is a
         # deterministic source-only alternative and never uses target metadata.
         sorted_slots = distances.argsort(dim=1)
-        target = valid_slots[sorted_slots[:, 1]]
+        targets = []
+        for row in range(style.shape[0]):
+            src_slot = int(src[row].item())
+            choices = [
+                int(slot) for slot in valid_slots[sorted_slots[row]].tolist()
+                if int(slot) != src_slot
+                and self.delta_min <= float((self.style_prototypes[slot] - self.style_prototypes[src_slot]).norm()) <= self.delta_max
+            ]
+            ids = sample_ids if sample_ids is not None and len(sample_ids) == style.shape[0] else [f"sample-{row}" for row in range(style.shape[0])]
+            key = str(ids[row]).encode("utf-8")
+            targets.append(choices[int(hashlib.sha256(key).hexdigest()[:8], 16) % len(choices)] if choices else src_slot)
+        target = torch.tensor(targets, device=style.device, dtype=torch.long)
         src_dist = distances.gather(1, nearest[:, None]).sqrt().squeeze(1)
         support_radius = self.prototype_radii.to(style.device)[src]
         valid = src_dist <= support_radius
         separation = (self.style_prototypes[src] - self.style_prototypes[target]).norm(dim=1)
         valid = valid & (separation > 1e-4)
-        confidence = torch.softmax(-distances / self.temperature, dim=1).max(dim=1).values
-        gate = valid.to(style.dtype) * (0.20 + 0.60 * confidence)
+        confidence = (1.0 - src_dist / support_radius.clamp_min(1e-6)).clamp(0.0, 1.0)
+        gate = valid.to(style.dtype) * (self.g_min + (self.g_max - self.g_min) * confidence)
         self._state = {
             "src": src,
             "target": target,
@@ -335,13 +397,19 @@ class FixedStyleBankAPICV32(nn.Module):
         keep = (gate * self.current_alpha).reshape(batch_shape).to(features.dtype)
         shifted = features + keep * delta
         realized = (shifted - features).flatten(1).square().mean(dim=1).sqrt() / base_rms
-        target_error = (delta.flatten(1).square().mean(dim=1).sqrt() / base_rms).detach()
+        shifted_mean, shifted_std = _stats(shifted)
+        target_error = (
+            (shifted_mean - target_mu).square().mean(dim=1).sqrt()
+            + (shifted_std - target_std).square().mean(dim=1).sqrt()
+        ) / 2.0
         self._last_audit[f"layer{layer}"] = {"realized": realized, "target_error": target_error}
         return shifted
 
     def make_shift_fns(self, condition=None, *, valid_mask=None):
         del condition, valid_mask
         self._last_audit = {}
+        if "delta_mu1" not in self._state:
+            return (lambda features: features, lambda features: features)
         return (lambda features: self._apply(features, 1), lambda features: self._apply(features, 2))
 
     def audit_tensors(self, reference: torch.Tensor) -> Dict[str, torch.Tensor]:
@@ -369,10 +437,14 @@ class FixedStyleBankAPICV32(nn.Module):
             "style_delta": target_ps.mean(),
             "effective_slots": reference.new_tensor(float(self.style_valid.sum().item())),
             "max_slot_share": reference.new_tensor(float(self.style_counts.max().item() / self.style_counts.sum().clamp_min(1.0).item())),
+            "rms_layer1_per_sample": self._last_audit.get("layer1", {}).get("realized", reference.new_zeros((n,))),
+            "rms_layer2_per_sample": self._last_audit.get("layer2", {}).get("realized", reference.new_zeros((n,))),
+            "style_target_error_layer1_per_sample": self._last_audit.get("layer1", {}).get("target_error", reference.new_zeros((n,))),
+            "style_target_error_layer2_per_sample": self._last_audit.get("layer2", {}).get("target_error", reference.new_zeros((n,))),
         }
 
 
-def build_apis_v3_2(variant: str, *, layer1_channels: int, layer2_channels: int, alpha_max: float, style_dim: int = 16, memory_size: int = 4, temperature: float = 0.5, rms_min: float = 0.001, rms_max: float = 0.05, **_) -> nn.Module:
+def build_apis_v3_2(variant: str, *, layer1_channels: int, layer2_channels: int, alpha_max: float, style_dim: int = 16, memory_size: int = 4, temperature: float = 0.5, rms_min: float = 0.001, rms_max: float = 0.05, delta_min: float = 0.02, delta_max: float = 0.50, g_min: float = 0.20, g_max: float = 0.80, **_) -> nn.Module:
     if variant not in APIC_V3_2_VARIANTS:
         raise ValueError(f"Unknown APIC v3_2 variant {variant!r}")
     return FixedStyleBankAPICV32(
@@ -384,4 +456,8 @@ def build_apis_v3_2(variant: str, *, layer1_channels: int, layer2_channels: int,
         temperature=temperature,
         rms_min=rms_min,
         rms_max=rms_max,
+        delta_min=delta_min,
+        delta_max=delta_max,
+        g_min=g_min,
+        g_max=g_max,
     )
