@@ -59,3 +59,12 @@ def test_v3_2_phase_has_explicit_teacher_bank_build():
     assert phases[2]["prepare_style_bank"] is True
     assert phases[3]["phase"] == "apis_warmup"
     assert phases[5]["phase"] == "joint"
+
+
+def test_v3_2_module_to_device():
+    """Regression: do not shadow nn.Module._apply (breaks .to/.cuda)."""
+    module = _module()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    moved = module.to(device)
+    buf = next(moved.buffers())
+    assert buf.device.type == device.type

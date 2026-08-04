@@ -373,7 +373,12 @@ class FixedStyleBankAPICV32(nn.Module):
         self._state["gate"] = self._state["gate"].to(image.device)
         return style, valid
 
-    def _apply(self, features: torch.Tensor, layer: int) -> torch.Tensor:
+    def _apply_feature_shift(self, features: torch.Tensor, layer: int) -> torch.Tensor:
+        """Apply bounded residual style shift on layer1/layer2 features.
+
+        Named ``_apply_feature_shift`` (not ``_apply``) to avoid shadowing
+        ``torch.nn.Module._apply``, which ``.to(device)`` / ``.cuda()`` require.
+        """
         gate = self._state.get("gate")
         if gate is None or self.current_alpha <= 0:
             return features
@@ -410,8 +415,10 @@ class FixedStyleBankAPICV32(nn.Module):
         self._last_audit = {}
         if "delta_mu1" not in self._state:
             return (lambda features: features, lambda features: features)
-        return (lambda features: self._apply(features, 1), lambda features: self._apply(features, 2))
-
+        return (
+            lambda features: self._apply_feature_shift(features, 1),
+            lambda features: self._apply_feature_shift(features, 2),
+        )
     def audit_tensors(self, reference: torch.Tensor) -> Dict[str, torch.Tensor]:
         zero = reference.new_zeros(())
         n = reference.shape[0]
