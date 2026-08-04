@@ -54,7 +54,8 @@
 | [`apic_v3/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`](records/apic_v3/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md) | 3090：APIC v3 CN_vs_AD primary 12-run 主表 |
 | [`apic_v3/3090/apic_v3_screening_cn_ad_primary_logs/`](records/apic_v3/3090/apic_v3_screening_cn_ad_primary_logs/) | 3090：APIC v3 CN_vs_AD primary 训练日志 |
 | [`apic_v3/3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md`](records/apic_v3/3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md) | 3090：APIC v3 CN 失败机制诊断（ops 24） |
-| [`apic_v3/3090/apic_v3_failure_diagnostics/`](records/apic_v3/3090/apic_v3_failure_diagnostics/) | 3090：ops 24 诊断机读产物 |
+| [`apic_v3/3090/apic_v3_failure_diagnostics_2026-08-04/`](records/apic_v3/3090/apic_v3_failure_diagnostics_2026-08-04/) | 3090：ops 24 诊断机读产物（CN 四 job 完整 layer-2） |
+| [`apic_v3/3090/apic_v3_failure_diagnostics/`](records/apic_v3/3090/apic_v3_failure_diagnostics/) | 3090：ops 24 早期 seed43-only 过渡副本（以 dated 目录为准） |
 | [`apic_v3/5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md`](records/apic_v3/5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md) | 5090：APIC v3 MCI_vs_AD primary 结果表 |
 | [`apic_v3/5090/apic_v3_screening_mci_ad_primary_logs/`](records/apic_v3/5090/apic_v3_screening_mci_ad_primary_logs/) | 5090：APIC v3 MCI_vs_AD primary 训练日志 |
 | [`apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md`](records/apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md) | 5090：APIC v3 MCI vs AD 失败机制诊断（ops 24） |

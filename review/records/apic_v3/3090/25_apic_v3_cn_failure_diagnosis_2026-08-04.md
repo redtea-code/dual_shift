@@ -9,7 +9,7 @@
 - 配置：`journal_dual_shift_apic_v3_screen_cn_ad.yaml`
 - 范围：仅本机已完成的 **CN_vs_AD** primary（MCI 产物不在本机）
 - 关联主表：`review/records/apic_v3/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`
-- 产物目录：`review/records/apic_v3/3090/apic_v3_failure_diagnostics/`
+- 产物目录：`review/records/apic_v3/3090/apic_v3_failure_diagnostics_2026-08-04/`（四 job 完整 layer-2；旧 `apic_v3_failure_diagnostics/` 仅 seed43 过渡副本）
 
 ## 1. 环境与指纹
 
@@ -33,8 +33,7 @@ Checkpoint 本体未入库（约 100MB×2）；SHA-256 已记录。
 |---|---|---:|---|
 | L1 历史汇总 | `summarize_apic_v3_diagnostics.py --roots .../cn_ad/s1` | 0 | `stdout/summarize_stdout.txt` |
 | L2 预检 | `export_... --job-dir .../seed43/nacc_to_adni --max-samples 32` | 0 | `stdout/precheck_seed43_nacc_stdout.txt` |
-| L2 全量失败单元 | seed43 `nacc_to_adni` 四 split | 0 | `stdout/full_seed43_nacc_stdout.txt` |
-| L2 全量对照单元 | seed43 `adni_to_nacc` 四 split | 0 | `stdout/full_seed43_adni_stdout.txt` |
+| L2 全量 | seed42/43 × 双向，四 split | 0 | `apic_v3_failure_diagnostics_2026-08-04/layer2_*_stdout.txt` |
 
 参考预测一致性：两 job 的 source_val / source_test / target 重建 clean 概率均 `matches_within_1e_5=true`。
 
@@ -57,7 +56,21 @@ Checkpoint 本体未入库（约 100MB×2）；SHA-256 已记录。
 - 最差单元 seed43 N→A 的 late/early > 1，但 **绝对 feature strength 仍仅 ~1e-6**，不足以构成有效残差。
 - 终局 `train_loss≈1e-3`、source 近完美 vs target 明显掉点，符合 **普通过拟合 / 队列外推失败** 与 **APIC 近恒等** 并存。
 
-## 4. 第二层：checkpoint 反事实（ops 24 优先单元）
+## 4. 第二层：checkpoint 反事实（ops 24；CN 四 job 齐套）
+
+四个 `seed×direction` 均已跑 **完整四 split**（预检后去掉 `--max-samples`）。归档：
+`apic_v3_failure_diagnostics_2026-08-04/checkpoint/seed{42|43}_{adni_to_nacc|nacc_to_adni}/`。
+
+### 4.0 四 job target 对照
+
+| job | ckpt ep | target clean BA | shifted BA | flip | gate | L1 RMS | L2 RMS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| seed42_adni_to_nacc | 12 | 0.7881 | 0.7881 | 0.0000 | 0.0271 | 5.13e-08 | 7.40e-05 |
+| seed42_nacc_to_adni | 26 | 0.7353 | 0.7353 | 0.0000 | 0.0266 | 2.98e-07 | 9.16e-05 |
+| seed43_adni_to_nacc | 31 | 0.7837 | 0.7837 | 0.0000 | 0.0306 | 3.15e-08 | 6.23e-05 |
+| seed43_nacc_to_adni | 22 | 0.6270 | 0.6289 | 0.0018 | 0.0396 | 1.18e-06 | 1.16e-04 |
+
+共性：gate≈0.03、layer RMS / JS≈0、clean≡shifted（最差单元仅 flip≈0.002）→ **ops 24 条款 1（近恒等）在全部 CN job 成立**。
 
 ### 4.1 最严重失败：CN seed43 NACC→ADNI（ckpt epoch 22）
 
@@ -112,10 +125,10 @@ memory counts：`[4,4,1,1,4,4,5,8609]` → 同样 **单 slot 垄断**。
 
 ## 7. 回传文件清单
 
-- [x] `history/apic_v3_history_summary.csv|json`、`apic_v3_epoch_history.csv`
-- [x] `checkpoint_seed43_nacc_to_adni/{diagnostic_summary.json,sample_diagnostics.csv}`
-- [x] `checkpoint_seed43_adni_to_nacc/{diagnostic_summary.json,sample_diagnostics.csv}`
-- [x] `stdout/*`（两脚本退出码均为 0）
-- [x] config / manifest / checkpoint SHA-256（上文）
-- [x] GPU / PyTorch / CUDA / Git（上文）
-- [ ] MCI roots：本机无产物，未跑
+- [x] `apic_v3_failure_diagnostics_2026-08-04/history/*`
+- [x] `checkpoint/seed42_{adni_to_nacc,nacc_to_adni}/{diagnostic_summary.json,sample_diagnostics.csv}`
+- [x] `checkpoint/seed43_{adni_to_nacc,nacc_to_adni}/{diagnostic_summary.json,sample_diagnostics.csv}`
+- [x] `layer2_*_stdout.txt` / smoke stdout（退出码均为 0）
+- [x] `artifact_sha256.json`、`ENVIRONMENT.md`
+- [x] config / manifest / checkpoint SHA-256
+- [ ] MCI roots：见 `review/records/apic_v3/5090/`（本机不跑）

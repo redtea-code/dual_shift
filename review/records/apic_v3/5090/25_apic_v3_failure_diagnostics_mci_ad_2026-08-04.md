@@ -112,7 +112,7 @@ seed42 N→A：train 0.997 vs test 0.653，target sens 仅 0.284。
 
 ## 3. 与 CN（3090 记录）的交叉阅读
 
-本机无 CN checkpoint。3090 已回传 layer-2：`review/records/apic_v3/3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md`（seed43 N→A / A→N）。结论同为 **§5-1 近恒等**（flip≈0，layer RMS~1e-6/1e-4），与 MCI 4/4 一致。
+本机无 CN checkpoint。3090 已回传 **CN 四 job 完整 layer-2**：`review/records/apic_v3/3090/apic_v3_failure_diagnostics_2026-08-04/`（见 `25_apic_v3_cn_failure_diagnosis_2026-08-04.md`）。结论同为 **§5-1 近恒等**（flip≈0，layer RMS~1e-6/1e-4），与 MCI 4/4 一致。
 
 ## 4. 综合诊断
 
@@ -131,7 +131,7 @@ seed42 N→A：train 0.997 vs test 0.653，target sens 仅 0.284。
 | `diagnostic_summary.json` + `sample_diagnostics.csv` | ✅ `checkpoint/{seed42,43}_{adni_to_nacc,nacc_to_adni}/` |
 | config / manifest / ckpt SHA-256 | ✅ `artifact_sha256.json`（ckpt 仅哈希，未入库） |
 | GPU / torch / CUDA / git | ✅ `ENVIRONMENT.md` |
-| CN layer-2 | ✅ 见 `review/records/apic_v3/3090/apic_v3_failure_diagnostics/` |
+| CN layer-2 | ✅ 见 `review/records/apic_v3/3090/apic_v3_failure_diagnostics_2026-08-04/`（四 job） |
 
 ## 6. 建议的下一步（不在本轮执行）
 
