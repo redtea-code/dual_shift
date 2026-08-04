@@ -10,6 +10,7 @@
 - config_hash：`['083d8c3690e2e109426ea9f22f5fe22a3d1ea23503ccd7d96c2ac02f0fd276f7', 'd11493024abf9cdb3da464cec63c2d31f00f750e9aa6b2b7503a20d26ba566c7']`
 - 机读全表：`metrics_table_apic_v3_mci_ad_primary_2026-08-04.csv`
 - 机读场强分层：`metrics_table_apic_v3_mci_ad_primary_by_field_strength_2026-08-04.csv`
+- 训练日志：`apic_v3_screening_mci_ad_primary_logs/`（`launcher.out` + 4 个 job log）
 - 说明：本表为 **MCI 单任务** primary 快照；完整 Gate S1 仍需 CN vs AD 同矩阵，**不得**据此启动 secondary（X+D）或宣称统计显著。
 
 ## 结论摘要（target balanced_accuracy）

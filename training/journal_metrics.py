@@ -8,7 +8,7 @@ import re
 from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
-from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, roc_auc_score
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, roc_auc_score
 
 
 def as_probabilities(
@@ -49,6 +49,10 @@ def as_probabilities(
 
 
 def _auc(labels: np.ndarray, probabilities: np.ndarray) -> float:
+    # Single-class slices (common in demographic / field-strength strata) make
+    # ROC AUC undefined; return NaN without calling sklearn (avoids log spam).
+    if len(labels) == 0 or len(np.unique(labels)) < 2:
+        return float("nan")
     try:
         if probabilities.shape[1] == 2:
             return float(roc_auc_score(labels, probabilities[:, 1]))
@@ -63,6 +67,32 @@ def _auc(labels: np.ndarray, probabilities: np.ndarray) -> float:
         )
     except ValueError:
         return float("nan")
+
+
+def _balanced_accuracy(
+    labels: np.ndarray,
+    predicted: np.ndarray,
+    num_classes: int,
+) -> float:
+    """Average per-class recall over classes present in ``y_true``.
+
+    Uses an explicit label set so ``confusion_matrix`` keeps a full ``C x C``
+    shape even when a stratum contains only one observed class (sklearn's
+    default otherwise emits UserWarning and may shrink the matrix).
+    """
+    if len(labels) == 0:
+        return float("nan")
+    matrix = confusion_matrix(
+        labels,
+        predicted,
+        labels=np.arange(num_classes),
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        per_class = np.diag(matrix).astype(float) / matrix.sum(axis=1)
+    present = per_class[np.isfinite(per_class)]
+    if len(present) == 0:
+        return float("nan")
+    return float(np.mean(present))
 
 
 def _ece(labels: np.ndarray, probabilities: np.ndarray, n_bins: int) -> float:
@@ -122,8 +152,8 @@ def _overall_metrics(
     metrics = {
         "n": int(len(labels)),
         "accuracy": float(accuracy_score(labels, predicted)),
-        "balanced_accuracy": float(
-            balanced_accuracy_score(labels, predicted)
+        "balanced_accuracy": _balanced_accuracy(
+            labels, predicted, num_classes
         ),
         "macro_f1": float(
             f1_score(
