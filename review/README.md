@@ -30,6 +30,7 @@
 | [`16_apis_v2_claim_e1_mci_ad_remote_plan_2026-08-02.md`](plans/16_apis_v2_claim_e1_mci_ad_remote_plan_2026-08-02.md) | APIS v2 MCI vs AD 远程执行计划 |
 | [`19_support_aware_paired_protocol_execution_plan_2026-08-03.md`](plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md) | Scan-aware 支持集与配对协议筛选计划 |
 | [`20_apic_v3_image_only_comparison_plan_2026-08-03.md`](plans/20_apic_v3_image_only_comparison_plan_2026-08-03.md) | APIC v3 严格 X / 扩展 X+D 多任务双向两种子对比计划 |
+| [`22_apic_v3_s1_3090_cn_ad_execution_plan_2026-08-03.md`](plans/22_apic_v3_s1_3090_cn_ad_execution_plan_2026-08-03.md) | 本机 3090：仅 CN_vs_AD × 三 X 变体执行计划 |
 
 ### Records
 
@@ -40,6 +41,10 @@
 | [`06_dual_shift_apis_3seed_remote_results_2026-07-30.md`](records/06_dual_shift_apis_3seed_remote_results_2026-07-30.md) | Linux 结果上传登记 |
 | [`12_apis_v2_smoke_adni_to_nacc_2026-07-30.md`](records/12_apis_v2_smoke_adni_to_nacc_2026-07-30.md) | APIS v2 ADNI→NACC smoke |
 | [`13_apis_v2_smoke_bidirectional_2026-07-30.md`](records/13_apis_v2_smoke_bidirectional_2026-07-30.md) | APIS v2 双向 smoke |
+| [`3090/15_apis_v2_claim_e1_interim_2026-08-03.md`](records/3090/15_apis_v2_claim_e1_interim_2026-08-03.md) | 3090：APIS v2 CN claim E1 中期判断 |
+| [`3090/16_apis_v2_claim_e1_metrics_main_table_2026-08-03.md`](records/3090/16_apis_v2_claim_e1_metrics_main_table_2026-08-03.md) | 3090：APIS v2 CN claim E1 全指标主表 |
+| [`3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`](records/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md) | 3090：APIC v3 CN_vs_AD primary 12-run 主表 |
+| [`5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md`](records/5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md) | 5090：APIC v3 MCI_vs_AD primary 结果表 |
 
 ### Analysis
 
