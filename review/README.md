@@ -44,6 +44,7 @@
 | [`3090/15_apis_v2_claim_e1_interim_2026-08-03.md`](records/3090/15_apis_v2_claim_e1_interim_2026-08-03.md) | 3090：APIS v2 CN claim E1 中期判断 |
 | [`3090/16_apis_v2_claim_e1_metrics_main_table_2026-08-03.md`](records/3090/16_apis_v2_claim_e1_metrics_main_table_2026-08-03.md) | 3090：APIS v2 CN claim E1 全指标主表 |
 | [`3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`](records/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md) | 3090：APIC v3 CN_vs_AD primary 12-run 主表 |
+| [`3090/apic_v3_screening_cn_ad_primary_logs/`](records/3090/apic_v3_screening_cn_ad_primary_logs/) | 3090：APIC v3 CN_vs_AD primary 训练日志 |
 | [`5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md`](records/5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md) | 5090：APIC v3 MCI_vs_AD primary 结果表 |
 
 ### Analysis
