@@ -107,7 +107,7 @@ def _identity(metrics_path: Path, root: Path) -> dict:
     )
     return {
         "artifact_root": str(root),
-        "seed": seed.removeprefix("seed"),
+        "seed": seed[4:] if seed.startswith("seed") else seed,
         "direction": direction,
         "metrics_path": str(metrics_path),
     }
