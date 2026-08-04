@@ -6,7 +6,7 @@
 - 负责人：本地 Windows（`merge/apis-v2-local`）
 - 状态：已完成
 - Git commit：工作区含 W1/W2/W3 改动（未单独提交）
-- 关联文档：`review/plans/11_apis_v2_local_experiment_schedule_2026-07-30.md`、`review/records/12_apis_v2_smoke_adni_to_nacc_2026-07-30.md`
+- 关联文档：`review/plans/11_apis_v2_local_experiment_schedule_2026-07-30.md`、`review/records/apis_v2/common/12_apis_v2_smoke_adni_to_nacc_2026-07-30.md`
 - 关联数据文件：`outputs/journal/dual_shift_apis_v2/smoke/seed42/`、`outputs/journal/dual_shift_apis_v2/paired_holdout/`
 
 ## 1. 实验指导与依据

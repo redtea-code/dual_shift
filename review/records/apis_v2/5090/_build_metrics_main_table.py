@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build full MCI-AD E1 metrics main table under review/records/5090/."""
+"""Build the MCI-AD E1 main table under review/records/apis_v2/5090/."""
 from __future__ import annotations
 
 import csv
 import json
 from pathlib import Path
 
-PROJECT = Path(__file__).resolve().parents[3]
+PROJECT = Path(__file__).resolve().parents[4]
 ROOT = PROJECT / "outputs/journal/dual_shift_apis_v2/claim_mci_ad/e1"
 OUT_DIR = Path(__file__).resolve().parent
 

@@ -8,7 +8,7 @@
 | 目录 | 用途 | 典型内容 |
 |---|---|---|
 | `plans/` | 实验开始前的决策与预注册计划 | 假设、范围、冻结条件、Gate、运行安排 |
-| `records/` | 实验执行过程与产物登记 | 状态、任务认领、环境、上传清单、失败记录 |
+| `records/` | 实验执行过程与产物登记；版本化实验按方法再分层 | 状态、任务认领、环境、上传清单、失败记录 |
 | `analysis/` | 基于结果数据的分析与结论 | 指标汇总、Gate 判定、环境对比、综合结论 |
 | `operations/` | 不直接承载实验结论的协作材料 | 交接、任务分发、远程操作说明 |
 
@@ -34,20 +34,31 @@
 
 ### Records
 
+版本化实验采用“方法优先、运行环境次级”的目录结构：
+`records/<method>/<environment>/`。当前冻结的方法目录为 `apis_v2/` 与 `apic_v3/`；
+早于该约定的 Dual-Shift/APIS 历史记录保留在 `records/` 根目录。
+
 | 文档 | 作用 |
 |---|---|
 | [`03_dual_shift_apis_3seed_status_2026-07-29.md`](records/03_dual_shift_apis_3seed_status_2026-07-29.md) | APIS 队列执行状态 |
 | [`05_dual_shift_remote_claim_2026-07-29.md`](records/05_dual_shift_remote_claim_2026-07-29.md) | 远程任务认领与启动记录 |
 | [`06_dual_shift_apis_3seed_remote_results_2026-07-30.md`](records/06_dual_shift_apis_3seed_remote_results_2026-07-30.md) | Linux 结果上传登记 |
-| [`12_apis_v2_smoke_adni_to_nacc_2026-07-30.md`](records/12_apis_v2_smoke_adni_to_nacc_2026-07-30.md) | APIS v2 ADNI→NACC smoke |
-| [`13_apis_v2_smoke_bidirectional_2026-07-30.md`](records/13_apis_v2_smoke_bidirectional_2026-07-30.md) | APIS v2 双向 smoke |
-| [`3090/15_apis_v2_claim_e1_interim_2026-08-03.md`](records/3090/15_apis_v2_claim_e1_interim_2026-08-03.md) | 3090：APIS v2 CN claim E1 中期判断 |
-| [`3090/16_apis_v2_claim_e1_metrics_main_table_2026-08-03.md`](records/3090/16_apis_v2_claim_e1_metrics_main_table_2026-08-03.md) | 3090：APIS v2 CN claim E1 全指标主表 |
-| [`3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`](records/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md) | 3090：APIC v3 CN_vs_AD primary 12-run 主表 |
-| [`3090/apic_v3_screening_cn_ad_primary_logs/`](records/3090/apic_v3_screening_cn_ad_primary_logs/) | 3090：APIC v3 CN_vs_AD primary 训练日志 |
-| [`3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md`](records/3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md) | 3090：APIC v3 CN 失败机制诊断（ops 24） |
-| [`3090/apic_v3_failure_diagnostics/`](records/3090/apic_v3_failure_diagnostics/) | 3090：ops 24 诊断机读产物 |
-| [`5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md`](records/5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md) | 5090：APIC v3 MCI_vs_AD primary 结果表 |
+| [`apis_v2/`](records/apis_v2/README.md) | APIS v2 smoke、claim E1 记录与机读表 |
+| [`apis_v2/common/12_apis_v2_smoke_adni_to_nacc_2026-07-30.md`](records/apis_v2/common/12_apis_v2_smoke_adni_to_nacc_2026-07-30.md) | APIS v2 ADNI→NACC smoke |
+| [`apis_v2/common/13_apis_v2_smoke_bidirectional_2026-07-30.md`](records/apis_v2/common/13_apis_v2_smoke_bidirectional_2026-07-30.md) | APIS v2 双向 smoke |
+| [`apis_v2/3090/15_apis_v2_claim_e1_interim_2026-08-03.md`](records/apis_v2/3090/15_apis_v2_claim_e1_interim_2026-08-03.md) | 3090：APIS v2 CN claim E1 中期判断 |
+| [`apis_v2/3090/16_apis_v2_claim_e1_metrics_main_table_2026-08-03.md`](records/apis_v2/3090/16_apis_v2_claim_e1_metrics_main_table_2026-08-03.md) | 3090：APIS v2 CN claim E1 全指标主表 |
+| [`apis_v2/5090/17_apis_v2_claim_mci_ad_e1_interim_2026-08-03.md`](records/apis_v2/5090/17_apis_v2_claim_mci_ad_e1_interim_2026-08-03.md) | 5090：APIS v2 MCI vs AD claim E1 中期判断 |
+| [`apis_v2/5090/18_apis_v2_claim_mci_ad_e1_metrics_main_2026-08-03.md`](records/apis_v2/5090/18_apis_v2_claim_mci_ad_e1_metrics_main_2026-08-03.md) | 5090：APIS v2 MCI vs AD claim E1 全指标主表 |
+| [`apic_v3/`](records/apic_v3/README.md) | APIC v3 image-only screening 记录、机读表与日志 |
+| [`apic_v3/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`](records/apic_v3/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md) | 3090：APIC v3 CN_vs_AD primary 12-run 主表 |
+| [`apic_v3/3090/apic_v3_screening_cn_ad_primary_logs/`](records/apic_v3/3090/apic_v3_screening_cn_ad_primary_logs/) | 3090：APIC v3 CN_vs_AD primary 训练日志 |
+| [`apic_v3/3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md`](records/apic_v3/3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md) | 3090：APIC v3 CN 失败机制诊断（ops 24） |
+| [`apic_v3/3090/apic_v3_failure_diagnostics/`](records/apic_v3/3090/apic_v3_failure_diagnostics/) | 3090：ops 24 诊断机读产物 |
+| [`apic_v3/5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md`](records/apic_v3/5090/19_apic_v3_screening_mci_ad_primary_2026-08-04.md) | 5090：APIC v3 MCI_vs_AD primary 结果表 |
+| [`apic_v3/5090/apic_v3_screening_mci_ad_primary_logs/`](records/apic_v3/5090/apic_v3_screening_mci_ad_primary_logs/) | 5090：APIC v3 MCI_vs_AD primary 训练日志 |
+| [`apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md`](records/apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md) | 5090：APIC v3 MCI vs AD 失败机制诊断（ops 24） |
+| [`apic_v3/5090/apic_v3_failure_diagnostics_2026-08-04/`](records/apic_v3/5090/apic_v3_failure_diagnostics_2026-08-04/) | 5090：ops 24 诊断机读产物 |
 
 ### Analysis
 

@@ -102,7 +102,7 @@ python experiments/report_apis_v2_claim_e1.py --seeds 42,43,44,45,46
 
 ## 参考
 
-- `review/records/3090/15_apis_v2_claim_e1_interim_2026-08-03.md`
+- `review/records/apis_v2/3090/15_apis_v2_claim_e1_interim_2026-08-03.md`
 - `journal_dual_shift_apis_v2_claim.yaml`
 - `experiments/run_apis_v2_claim_e1.py`
 - `experiments/report_apis_v2_claim_e1.py`

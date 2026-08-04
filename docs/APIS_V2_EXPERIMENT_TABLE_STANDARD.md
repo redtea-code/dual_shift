@@ -29,8 +29,8 @@
 推荐目录：
 
 ```text
-review/records/3090/<task>/
-review/records/5090/<task>/
+review/records/apis_v2/3090/
+review/records/apis_v2/5090/
 outputs/journal/dual_shift_apis_v2/<claim_root>/e1/
 ```
 
@@ -208,4 +208,3 @@ MCI_vs_AD,46,NACC_to_ADNI,apis_v2,target,subject_mean,pooled,not_started,NA,NA,N
 ```
 
 示例中的最后一行必须保留：它说明该组合属于计划矩阵但尚未完成，不能被误读为缺失记录或随机水平。
-

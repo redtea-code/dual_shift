@@ -17,6 +17,8 @@ Dual-Shift 实验代码、结构化结果与研究记录仓库。
 ## 文档入口
 
 - 实验文档分类与完整索引：[`review/README.md`](review/README.md)
+- APIS v2 实验记录：[`review/records/apis_v2/`](review/records/apis_v2/README.md)
+- APIC v3 实验记录：[`review/records/apic_v3/`](review/records/apic_v3/README.md)
 - 实验分析与记录固定模板：[`docs/EXPERIMENT_RECORD_TEMPLATE.md`](docs/EXPERIMENT_RECORD_TEMPLATE.md)
 - Git 协作与实验记录指南：[`docs/GIT_PROJECT_GUIDE_from_local.md`](docs/GIT_PROJECT_GUIDE_from_local.md)
 - Scan-aware 数据现实与当前主张边界：[`docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md`](docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md)

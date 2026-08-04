@@ -8,8 +8,8 @@
 - Git commit（诊断时）：`90efdf9`（含诊断脚本）；本机额外修补 `summarize_apic_v3_diagnostics.py` 的 Python 3.8 `removeprefix` 兼容
 - 配置：`journal_dual_shift_apic_v3_screen_cn_ad.yaml`
 - 范围：仅本机已完成的 **CN_vs_AD** primary（MCI 产物不在本机）
-- 关联主表：`review/records/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`
-- 产物目录：`review/records/3090/apic_v3_failure_diagnostics/`
+- 关联主表：`review/records/apic_v3/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`
+- 产物目录：`review/records/apic_v3/3090/apic_v3_failure_diagnostics/`
 
 ## 1. 环境与指纹
 

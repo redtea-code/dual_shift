@@ -8,6 +8,8 @@
 
 保存位置按主要用途选择：计划放入 `review/plans/`，执行记录放入 `review/records/`，
 结果分析放入 `review/analysis/`，交接与任务分发放入 `review/operations/`。
+版本化实验记录必须继续按 `review/records/<method>/<environment>/` 分层；当前方法目录为
+`apis_v2` 和 `apic_v3`，不得按 GPU 型号直接混放不同方法。
 分类边界和当前索引见 `review/README.md`。
 
 ## 使用要求

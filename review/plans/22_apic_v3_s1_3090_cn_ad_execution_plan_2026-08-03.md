@@ -4,7 +4,7 @@
 
 - 日期：2026-08-03
 - 负责人：cyh / 本机 RTX 3090
-- 状态：P3 完成（CN 12/12 已落盘；见 `review/records/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`）
+- 状态：P3 完成（CN 12/12 已落盘；见 `review/records/apic_v3/3090/23_apic_v3_cn_ad_s1_metrics_2026-08-04.md`）
 - Git commit：`40c7371`（分支 `run/apic-v3-s1-cn-3090`）
 - 关联文档：
   - `review/plans/20_apic_v3_image_only_comparison_plan_2026-08-03.md`（科学预注册）
@@ -79,7 +79,7 @@ python experiments/run_apic_v3_screening.py \
 | P2 | CN×A→N×seed42 三变体 one-epoch smoke | reload/clean-path/memory/无 NaN/无系统单类 |
 | P3 | 正式 primary 12 runs | 12/12 `journal_metrics.json` 且协议身份匹配 |
 | P4 | 本机 CN 描述性汇总 | 不调用完整 Gate 冒充通过 |
-| P5 | 回传 / `review/records/3090/` 登记 | ops 21 §6 的 CN 子集齐全 |
+| P5 | 回传 / `review/records/apic_v3/3090/` 登记 | ops 21 §6 的 CN 子集齐全 |
 
 不完整 job：按 launcher 语义 **整 job 三变体重跑**；不得用 smoke epoch 预算或 smoke 目录冒充正式结果。
 
@@ -119,4 +119,4 @@ python experiments/run_apic_v3_screening.py \
 - [ ] 三变体 `journal_metrics.json`、逐 subject predictions、checkpoint
 - [ ] 若生成：job 级 `summary.json` / paired 比较文件
 - [ ] 失败 job 的退出码、完整日志、GPU/驱动状态
-- [ ] 本机记录登记至 `review/records/3090/`（执行后另建 records，不改写本计划判定区）
+- [ ] 本机记录登记至 `review/records/apic_v3/3090/`（执行后另建 records，不改写本计划判定区）
