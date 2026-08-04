@@ -936,6 +936,7 @@ def _selection_key(result, config, *, variant: str | None = None):
     )
     auc = float(subject_metrics["auc"])
     macro_f1 = float(subject_metrics.get("macro_f1") or 0.0)
+    balanced_accuracy = float(subject_metrics.get("balanced_accuracy") or 0.0)
     brier = float(subject_metrics.get("brier") or 0.0)
     group_gap = 0.0
     if subject_metrics.get("worst_group_auc") is not None and np.isfinite(
@@ -1014,6 +1015,7 @@ def _selection_key(result, config, *, variant: str | None = None):
             "recalls": recalls,
             "auc": auc,
             "macro_f1": macro_f1,
+            "balanced_accuracy": balanced_accuracy,
             "brier": brier,
             "group_gap": group_gap,
             "composite": composite,
@@ -1183,6 +1185,22 @@ def _train_variant(
                 ),
                 "style_memory_total_assignments": train_result.get(
                     "style_memory_total_assignments"
+                ),
+                "clean_ce": train_result.get("clean_ce"),
+                "shift_ce": train_result.get("shift_ce"),
+                "js": train_result.get("js"),
+                "feature_consistency": train_result.get("feature_consistency"),
+                "intervention_penalty": train_result.get("intervention_penalty"),
+                "val_balanced_accuracy": (
+                    (val_result.get("collapse_guard") or {})
+                    .get("metrics", {})
+                    .get("balanced_accuracy")
+                ),
+                "selection_eligible": (
+                    (val_result.get("collapse_guard") or {}).get("eligible")
+                ),
+                "selection_reasons": (
+                    (val_result.get("collapse_guard") or {}).get("reasons")
                 ),
             }
         )
@@ -1368,6 +1386,8 @@ def _train_variant(
                 else (_patch_gamma_summary(model) if patch_gamma else None)
             ),
             "group_weights": None if dro is None else dro.group_weights.cpu().tolist(),
+            "best_checkpoint_epoch": int(checkpoint["epoch"]),
+            "best_checkpoint_selection": checkpoint.get("selection"),
             "initialization_seed": int(config["seed"]),
             "training_seed": int(config["seed"]),
             "split_seed": int(

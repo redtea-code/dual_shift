@@ -204,6 +204,8 @@ def run_dual_shift_epoch(
         "condition_gate",
     )
     apic_audit_sums = {key: 0.0 for key in apic_audit_keys}
+    loss_component_keys = ("clean_ce", "shift_ce", "js", "feat", "intervention")
+    loss_component_sums = {key: 0.0 for key in loss_component_keys}
     logits_all, labels_all, env_all, subjects, folders = [], [], [], [], []
     field_strengths: List[float] = []
     for raw_batch in loader:
@@ -263,6 +265,11 @@ def run_dual_shift_epoch(
                 intervention_mask=intervention_mask if training else None,
             )
             train_loss = loss_dict["total"]
+            batch_size = len(batch["label"])
+            for key in loss_component_keys:
+                value = loss_dict.get(key)
+                if value is not None:
+                    loss_component_sums[key] += float(value.detach()) * batch_size
             if training:
                 optimizer.zero_grad(set_to_none=True)
                 train_loss.backward()
@@ -288,7 +295,6 @@ def run_dual_shift_epoch(
                         )
             else:
                 tracked = F.cross_entropy(outputs.clean_logits, batch["label"])
-        batch_size = len(batch["label"])
         total_loss += float(tracked.detach()) * batch_size
         count += batch_size
         logits_all.append(outputs.clean_logits.detach().cpu())
@@ -334,6 +340,16 @@ def run_dual_shift_epoch(
     }
     result.update(
         {key: value / max(count, 1) for key, value in apic_audit_sums.items()}
+    )
+    result.update(
+        {
+            "clean_ce": loss_component_sums["clean_ce"] / max(count, 1),
+            "shift_ce": loss_component_sums["shift_ce"] / max(count, 1),
+            "js": loss_component_sums["js"] / max(count, 1),
+            "feature_consistency": loss_component_sums["feat"] / max(count, 1),
+            "intervention_penalty": loss_component_sums["intervention"]
+            / max(count, 1),
+        }
     )
     if getattr(model, "apis_variant", None) == "v3_style_memory":
         style_valid = getattr(model.apis, "style_valid", None)

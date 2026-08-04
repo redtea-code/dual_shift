@@ -62,6 +62,7 @@
 |---|---|
 | [`04_dual_shift_remote_handoff_2026-07-29.md`](operations/04_dual_shift_remote_handoff_2026-07-29.md) | 远程实验交接与任务分发 |
 | [`21_apic_v3_remote_screening_handoff_2026-08-03.md`](operations/21_apic_v3_remote_screening_handoff_2026-08-03.md) | APIC v3 两 seed 多任务远程筛选命令与回传规范 |
+| [`24_apic_v3_failure_diagnostics_2026-08-04.md`](operations/24_apic_v3_failure_diagnostics_2026-08-04.md) | APIC v3 训练轨迹、style memory与反事实特征干预诊断脚本说明 |
 
 ## 新文档要求
 
