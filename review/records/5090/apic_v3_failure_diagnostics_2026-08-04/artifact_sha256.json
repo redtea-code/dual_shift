@@ -1,0 +1,27 @@
+[
+  {
+    "path": "journal_dual_shift_apic_v3_screen_mci_ad_remote.yaml",
+    "sha256": "a47843e2bba8c978f69d484f0183f75d6b9060a1410c697ab94652bfae7e8b7a",
+    "bytes": 3694
+  },
+  {
+    "path": "outputs/journal/apic_v3_screening_mci_ad/s1/seed43/adni_to_nacc/split_manifest.json",
+    "sha256": "02a0bc193ad5c6d95a9499e5ef13cc51284963045cef02f7e9cdb2fac039aa7b",
+    "bytes": 392693
+  },
+  {
+    "path": "outputs/journal/apic_v3_screening_mci_ad/s1/seed43/adni_to_nacc/apic_v3_x/best_checkpoint.pt",
+    "sha256": "c580b54ebb5ddcf62549268af2d645998ccbe55bb01446912c253b6ad364fd73",
+    "bytes": 100123881
+  },
+  {
+    "path": "outputs/journal/apic_v3_screening_mci_ad/s1/seed42/adni_to_nacc/apic_v3_x/best_checkpoint.pt",
+    "sha256": "80930580362c680aa4b8872f553a41c8d91dec7b5653cf9790e354ab8573e3f2",
+    "bytes": 100123881
+  },
+  {
+    "path": "outputs/journal/apic_v3_screening_mci_ad/s1/seed42/nacc_to_adni/apic_v3_x/best_checkpoint.pt",
+    "sha256": "75ec39b014c3dfec24bcdfabc1e90dbe87e4372e70e05ee77a73a58538bc0e3c",
+    "bytes": 100123881
+  }
+]
