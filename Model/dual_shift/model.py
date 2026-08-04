@@ -9,6 +9,7 @@ import torch.nn as nn
 from Model.dual_shift.acquisition_encoder import AcquisitionDescriptorEncoder
 from Model.dual_shift.apis import APISModule
 from Model.dual_shift.apis_v3 import APIS_V3_VARIANTS, build_apis_v3
+from Model.dual_shift.apis_v3_2 import APIC_V3_2_VARIANTS, build_apis_v3_2
 from Model.dual_shift.backbone import DualShiftBackbone
 from Model.dual_shift.demographic_encoder import (
     DemographicEncoder,
@@ -75,6 +76,8 @@ class DualShiftResNet3D(nn.Module):
         apis_memory_size: int = 8,
         apis_memory_beta: float = 0.95,
         apis_style_temperature: float = 0.5,
+        apis_rms_min: float = 0.001,
+        apis_rms_max: float = 0.05,
     ):
         super().__init__()
         self.num_classes = int(num_classes)
@@ -110,6 +113,16 @@ class DualShiftResNet3D(nn.Module):
         }
         if self.apis_variant == "v2_residual":
             self.apis = APISModule(**apis_kwargs)
+        elif self.apis_variant in APIC_V3_2_VARIANTS:
+            self.apis = build_apis_v3_2(
+                self.apis_variant,
+                style_dim=apis_style_dim,
+                memory_size=apis_memory_size,
+                temperature=apis_style_temperature,
+                rms_min=apis_rms_min,
+                rms_max=apis_rms_max,
+                **apis_kwargs,
+            )
         elif self.apis_variant in APIS_V3_VARIANTS:
             self.apis = build_apis_v3(
                 self.apis_variant,
@@ -123,20 +136,36 @@ class DualShiftResNet3D(nn.Module):
         else:
             raise ValueError(
                 f"Unknown apis_variant {self.apis_variant!r}; expected "
-                f"'v2_residual' or one of {APIS_V3_VARIANTS}"
+                f"'v2_residual', one of {APIS_V3_VARIANTS}, or {APIC_V3_2_VARIANTS}"
             )
         self.mixstyle1 = MixStyle(p=mixstyle_p, alpha=mixstyle_alpha)
         self.mixstyle2 = MixStyle(p=mixstyle_p, alpha=mixstyle_alpha)
         self.prototype_bank = ProtocolPrototypeBank(min_subjects=prototype_min_subjects)
         self.cdt = ContinuousDemographicTransport()
         self._apis_active = False
+        self._building_style_bank = False
         # Negative-control flag: shuffle acquisition embeddings within the batch.
         self.shuffle_acquisition = False
 
-    def set_phase(self, *, apis_active: bool, cdt_enabled: bool, alpha: float) -> None:
+    def set_phase(
+        self,
+        *,
+        apis_active: bool,
+        cdt_enabled: bool,
+        alpha: float,
+        prepare_style_bank: bool = False,
+    ) -> None:
         self._apis_active = bool(apis_active) and self.use_apis
+        self._building_style_bank = bool(prepare_style_bank)
         self.apis.enabled = self._apis_active
         self.apis.set_alpha(alpha if self._apis_active else 0.0)
+        if self.apis_variant in APIC_V3_2_VARIANTS and (
+            self._apis_active or self._building_style_bank
+        ):
+            # The teacher is copied exactly once, at the clean -> APIC boundary.
+            self.apis.freeze_teacher(self.backbone)
+        if self.apis_variant in APIC_V3_2_VARIANTS and self._apis_active:
+            self.apis.finalize_style_bank()
         self.cdt.enabled = bool(cdt_enabled) and self.use_cdt
         # MixStyle only during training forward; keep modules activated flag aligned.
         self.mixstyle1.set_activated(self.use_mixstyle)
@@ -228,13 +257,27 @@ class DualShiftResNet3D(nn.Module):
             clean_layer4, covariates, **head_kwargs
         )
 
+        # Collect source-only descriptors during clean warm-up.  The collection
+        # is detached and finalized when the APIC phase begins.
+        if (
+            self.apis_variant in APIC_V3_2_VARIANTS
+            and (self.training or self._building_style_bank)
+            and not self.apis.finalized
+        ):
+            if self.apis.teacher is not None:
+                with torch.no_grad():
+                    teacher_l1, teacher_l2 = self.apis.teacher(image)
+                self.apis.observe_source(teacher_l1, teacher_l2)
+            else:
+                self.apis.observe_source(clean_feats["layer1"], clean_feats["layer2"])
+
         run_style_memory = (
-            self.apis_variant == "v3_style_memory"
+            self.apis_variant in {"v3_style_memory", *APIC_V3_2_VARIANTS}
             and self.training
             and self._apis_active
             and not force_clean_only
         )
-        if self.apis_variant == "v3_style_memory":
+        if self.apis_variant in {"v3_style_memory", *APIC_V3_2_VARIANTS}:
             if not run_style_memory:
                 return DualShiftOutput(
                     clean_logits=clean_logits,
@@ -246,12 +289,17 @@ class DualShiftResNet3D(nn.Module):
                         "scan_film_strength": scan_film_strength,
                     },
                 )
-            condition, valid_mask = self.apis.prepare_style_condition(
-                clean_feats["layer1"],
-                clean_feats["layer2"],
-                clean_feats["layer3"],
-                update_memory=True,
-            )
+            if self.apis_variant == "v3_style_memory":
+                condition, valid_mask = self.apis.prepare_style_condition(
+                    clean_feats["layer1"],
+                    clean_feats["layer2"],
+                    clean_feats["layer3"],
+                    update_memory=True,
+                )
+            else:
+                condition, valid_mask = self.apis.prepare_style_condition(
+                    image, clean_feats["layer1"], clean_feats["layer2"]
+                )
             shift1, shift2 = self.apis.make_shift_fns(
                 condition, valid_mask=valid_mask
             )
@@ -259,6 +307,7 @@ class DualShiftResNet3D(nn.Module):
                 image,
                 shift_layer1=shift1,
                 shift_layer2=shift2,
+                update_bn_stats=self.apis_variant not in APIC_V3_2_VARIANTS,
             )
             shifted_layer4 = shifted_feats["layer4"]
             if self.use_scan_film and acq_emb is not None:
@@ -276,7 +325,7 @@ class DualShiftResNet3D(nn.Module):
                 demographic_embedding=demo,
                 shift_strength=audit["strength"],
                 extras={
-                    "apis_mode": "v3_style_memory",
+                    "apis_mode": self.apis_variant,
                     "apis_coefficient_l2": audit["coefficient_l2"],
                     "apis_coefficient_l2_per_sample": audit[
                         "coefficient_l2_per_sample"
@@ -289,6 +338,12 @@ class DualShiftResNet3D(nn.Module):
                     "style_entropy": audit["style_entropy"],
                     "style_delta": audit["style_delta"],
                     "condition_gate": audit["condition_gate"],
+                    "apis_style_target_error_per_sample": audit.get(
+                        "style_target_error_per_sample"
+                    ),
+                    "apis_rms_per_sample": audit.get("realized_per_sample"),
+                    "apis_effective_slots": audit.get("effective_slots"),
+                    "apis_max_slot_share": audit.get("max_slot_share"),
                 },
             )
 

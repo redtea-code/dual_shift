@@ -76,6 +76,13 @@ def compute_dual_shift_loss(
     intervention_penalty: Optional[torch.Tensor] = None,
     lambda_intervention: float = 0.001,
     intervention_mask: Optional[torch.Tensor] = None,
+    v3_2_mode: bool = False,
+    rms_per_sample: Optional[torch.Tensor] = None,
+    style_target_error_per_sample: Optional[torch.Tensor] = None,
+    rms_min: float = 0.001,
+    rms_max: float = 0.05,
+    lambda_style: float = 0.1,
+    lambda_rms: float = 0.1,
 ) -> Dict[str, torch.Tensor]:
     clean_ce = _weighted_ce(clean_logits, labels, sample_weights, class_weights)
     losses = {
@@ -86,6 +93,8 @@ def compute_dual_shift_loss(
         "kl": clean_logits.new_tensor(float(kl_value)),
         "strength": clean_logits.new_zeros(()),
         "intervention": clean_logits.new_zeros(()),
+        "style": clean_logits.new_zeros(()),
+        "rms_band": clean_logits.new_zeros(()),
     }
     total = clean_ce + lambda_kl * losses["kl"]
     shift_weights = sample_weights
@@ -104,7 +113,12 @@ def compute_dual_shift_loss(
         js = js_divergence(clean_logits, shifted_logits, shift_weights)
         losses["shift_ce"] = shift_ce
         losses["js"] = js
-        total = total + lambda_shift * shift_ce + lambda_js * js
+        if v3_2_mode:
+            # Average clean and supported shifted CE instead of rewarding the
+            # old zero-intervention shortcut with two identical full terms.
+            total = 0.5 * (clean_ce + shift_ce) + lambda_js * js
+        else:
+            total = total + lambda_shift * shift_ce + lambda_js * js
         if clean_embedding is not None and shifted_embedding is not None:
             feat = feature_cosine_loss(
                 clean_embedding, shifted_embedding, shift_weights
@@ -129,7 +143,18 @@ def compute_dual_shift_loss(
             elif pen.ndim > 0:
                 pen = pen.mean()
             losses["intervention"] = pen
-            total = total + lambda_intervention * losses["intervention"]
+            if not v3_2_mode:
+                total = total + lambda_intervention * losses["intervention"]
+        if v3_2_mode:
+            if style_target_error_per_sample is not None:
+                target_error = style_target_error_per_sample.to(clean_logits.device).reshape(-1)
+                losses["style"] = _weighted_mean(target_error, shift_weights)
+                total = total + float(lambda_style) * losses["style"]
+            if rms_per_sample is not None:
+                rms = rms_per_sample.to(clean_logits.device).reshape(-1)
+                band = F.relu(float(rms_min) - rms).square() + F.relu(rms - float(rms_max)).square()
+                losses["rms_band"] = _weighted_mean(band, shift_weights)
+                total = total + float(lambda_rms) * losses["rms_band"]
     with torch.no_grad():
         losses["per_sample_clean"] = F.cross_entropy(
             clean_logits, labels, reduction="none"

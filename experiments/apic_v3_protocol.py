@@ -51,3 +51,20 @@ def config_fingerprint(config: dict) -> str:
 
     payload = json.dumps(normalise(config), sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+APIC_V3_2_VARIANT_SPECS = {
+    "ce_x": {"base_variant": "clean", "modalities": "X", "use_demographics": False},
+    "mixstyle_x": {"base_variant": "mixstyle", "modalities": "X", "use_demographics": False},
+    "apic_v3_2_x": {
+        "base_variant": "v3_2_balanced_style_memory",
+        "modalities": "X",
+        "use_demographics": False,
+    },
+}
+APIC_V3_2_PRIMARY_VARIANTS = ("ce_x", "mixstyle_x", "apic_v3_2_x")
+
+
+def apic_v3_2_variant_spec(variant: str) -> dict | None:
+    spec = APIC_V3_2_VARIANT_SPECS.get(str(variant))
+    return None if spec is None else dict(spec)

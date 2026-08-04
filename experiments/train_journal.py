@@ -84,7 +84,9 @@ from experiments.apic_v3_protocol import (
     APIC_V3_PRIMARY_VARIANTS,
     APIC_V3_SCREENING_VARIANTS,
     APIC_V3_SECONDARY_VARIANTS,
+    APIC_V3_2_PRIMARY_VARIANTS,
     apic_v3_variant_spec,
+    apic_v3_2_variant_spec,
     config_fingerprint,
 )
 
@@ -124,6 +126,7 @@ VARIANT_STAGES = {
     "ce_xd": "apic_v3_screening",
     "mixstyle_xd": "apic_v3_screening",
     "apic_v3_xd": "apic_v3_screening",
+    "apic_v3_2_x": "apic_v3_2_screening",
 }
 
 # Display names: ce_only with class_weighted_ce is weighted CE, not plain CE.
@@ -156,6 +159,7 @@ VARIANT_DISPLAY = {
     "ce_xd": "weighted_ce_xd",
     "mixstyle_xd": "mixstyle_xd",
     "apic_v3_xd": "apic_v3_xd",
+    "apic_v3_2_x": "apic_v3_2_x",
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
@@ -168,7 +172,7 @@ DUAL_SHIFT_VARIANTS = frozenset(
         "v3_style_memory",
         "mixstyle", "film_scan", "apis_scan",
     }
-) | APIC_V3_SCREENING_VARIANTS
+) | APIC_V3_SCREENING_VARIANTS | frozenset(APIC_V3_2_PRIMARY_VARIANTS)
 JOURNAL_SPATIAL_VARIANTS = frozenset({"spatial", "spatial_groupdro"})
 JOURNAL_BACKBONE_VARIANTS = frozenset(
     {"ce_only", "groupdro", "spatial", "spatial_groupdro"}
@@ -505,7 +509,7 @@ def _make_model(config, num_classes, variant):
     model_config = config["model"]
     baseline_cfg = config.get("baselines", {})
     covariate_dim = 3
-    screening_spec = apic_v3_variant_spec(variant)
+    screening_spec = apic_v3_variant_spec(variant) or apic_v3_2_variant_spec(variant)
     base_variant = (
         str(screening_spec["base_variant"]) if screening_spec is not None else variant
     )
@@ -533,7 +537,7 @@ def _make_model(config, num_classes, variant):
         model_config = config["model"]
         use_apis = base_variant in {
             "dual_shift", "apis_only", "apis_v2", "apis_v2_shuffle", "apis_scan",
-            "v3_style_memory",
+            "v3_style_memory", "v3_2_balanced_style_memory",
         }
         model = DualShiftResNet3D(
             num_classes=num_classes,
@@ -554,14 +558,16 @@ def _make_model(config, num_classes, variant):
             scan_film_alpha=float(ds.get("scan_film_alpha", 0.1)),
             use_demographics=use_demographics,
             apis_variant=(
-                "v3_style_memory"
-                if base_variant == "v3_style_memory"
+                base_variant
+                if base_variant in {"v3_style_memory", "v3_2_balanced_style_memory"}
                 else "v2_residual"
             ),
             apis_style_dim=int(ds.get("apis_style_dim", 16)),
             apis_memory_size=int(ds.get("apis_memory_size", 8)),
             apis_memory_beta=float(ds.get("apis_memory_beta", 0.95)),
             apis_style_temperature=float(ds.get("apis_style_temperature", 0.5)),
+            apis_rms_min=float(ds.get("rms_min", 0.001)),
+            apis_rms_max=float(ds.get("rms_max", 0.05)),
         )
         model.shuffle_acquisition = bool(base_variant == "apis_v2_shuffle")
         return model
@@ -1359,8 +1365,10 @@ def _train_variant(
     ):
         baseline_name = "unweighted_ce"
     screening_spec = apic_v3_variant_spec(variant)
+    if screening_spec is None:
+        screening_spec = apic_v3_2_variant_spec(variant)
     apic_v3_audit = None
-    if getattr(model, "apis_variant", None) == "v3_style_memory":
+    if getattr(model, "apis_variant", None) in {"v3_style_memory", "v3_2_balanced_style_memory"}:
         valid = model.apis.style_valid.detach().cpu()
         counts = model.apis.style_counts.detach().cpu()
         apic_v3_audit = {
@@ -1401,7 +1409,9 @@ def _train_variant(
             ),
             "config_hash": _config_fingerprint(config),
             "method_family": (
-                "APIC_v3_screening" if screening_spec is not None else None
+                "APIC_v3_2_screening"
+                if apic_v3_2_variant_spec(variant) is not None
+                else ("APIC_v3_screening" if screening_spec is not None else None)
             ),
             "code_variant": (
                 screening_spec["base_variant"]
@@ -1416,7 +1426,8 @@ def _train_variant(
                 getattr(model, "use_scan_film", False)
                 or (
                     getattr(model, "use_apis", False)
-                    and getattr(model, "apis_variant", None) != "v3_style_memory"
+                    and getattr(model, "apis_variant", None)
+                    not in {"v3_style_memory", "v3_2_balanced_style_memory"}
                 )
             ),
             "apic_v3_audit": apic_v3_audit,
@@ -1540,7 +1551,11 @@ def _paired_variant_comparisons(output_dir, variants, config):
             for variant in variants
             if variant not in APIC_V3_SCREENING_VARIANTS
         ],
-        "ce_x": [variant for variant in variants if variant in APIC_V3_PRIMARY_VARIANTS],
+        "ce_x": [
+            variant
+            for variant in variants
+            if variant in APIC_V3_PRIMARY_VARIANTS or variant in APIC_V3_2_PRIMARY_VARIANTS
+        ],
         "ce_xd": [
             variant for variant in variants if variant in APIC_V3_SECONDARY_VARIANTS
         ],

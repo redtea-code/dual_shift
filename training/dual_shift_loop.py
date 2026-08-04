@@ -64,6 +64,43 @@ def phase_schedule(epoch: int, config: Mapping, *, variant: str | None = None) -
             "update_prototypes": False,
             "phase": "mixstyle",
         }
+    if variant == "apic_v3_2_x":
+        if epoch < warm_clean:
+            return {
+                "apis_active": False,
+                "cdt_enabled": False,
+                "alpha": 0.0,
+                "update_prototypes": False,
+                "prepare_style_bank": False,
+                "phase": "clean_warmup",
+            }
+        if epoch == warm_clean:
+            return {
+                "apis_active": False,
+                "cdt_enabled": False,
+                "alpha": 0.0,
+                "update_prototypes": False,
+                "prepare_style_bank": True,
+                "phase": "style_bank_build",
+            }
+        if epoch < warm_clean + warm_apis + 1:
+            progress = (epoch - warm_clean) / max(warm_apis, 1)
+            return {
+                "apis_active": True,
+                "cdt_enabled": False,
+                "alpha": alpha_max * progress,
+                "update_prototypes": False,
+                "prepare_style_bank": False,
+                "phase": "apis_warmup",
+            }
+        return {
+            "apis_active": True,
+            "cdt_enabled": False,
+            "alpha": alpha_max,
+            "update_prototypes": False,
+            "prepare_style_bank": False,
+            "phase": "joint",
+        }
     if variant == "film_scan":
         return {
             "apis_active": False,
@@ -170,14 +207,16 @@ def run_dual_shift_epoch(
     from training.journal_metrics import compute_journal_metrics
 
     training = optimizer is not None
-    model.train(training)
     schedule = phase_schedule(epoch, config or {}, variant=variant)
+    bank_build = bool(training and schedule.get("phase") == "style_bank_build")
+    model.train(training and not bank_build)
     if training:
         model.begin_epoch()
         model.set_phase(
             apis_active=schedule["apis_active"],
             cdt_enabled=schedule["cdt_enabled"],
             alpha=schedule["alpha"],
+            prepare_style_bank=bool(schedule.get("prepare_style_bank", False)),
         )
         if model.use_cdt:
             model.cdt.recompute_weights(
@@ -202,9 +241,11 @@ def run_dual_shift_epoch(
         "style_entropy",
         "style_delta",
         "condition_gate",
+        "apis_effective_slots",
+        "apis_max_slot_share",
     )
     apic_audit_sums = {key: 0.0 for key in apic_audit_keys}
-    loss_component_keys = ("clean_ce", "shift_ce", "js", "feat", "intervention")
+    loss_component_keys = ("clean_ce", "shift_ce", "js", "feat", "intervention", "style", "rms_band")
     loss_component_sums = {key: 0.0 for key in loss_component_keys}
     logits_all, labels_all, env_all, subjects, folders = [], [], [], [], []
     field_strengths: List[float] = []
@@ -217,7 +258,7 @@ def run_dual_shift_epoch(
         acquisitions = unbatch_acquisitions(raw_batch.get("acquisition"))
         sample_ids = [str(folder) for folder in raw_batch["folder"]]
         subject_ids = [str(subject) for subject in raw_batch["subject_id"]]
-        with torch.set_grad_enabled(training):
+        with torch.set_grad_enabled(training and not bank_build):
             outputs = model(
                 batch["image"],
                 batch["covariates"],
@@ -240,6 +281,7 @@ def run_dual_shift_epoch(
             if intervention_penalty is None:
                 intervention_penalty = extras.get("apis_coefficient_l2")
             intervention_mask = extras.get("valid_intervention_mask")
+            v3_2_mode = getattr(model, "apis_variant", None) == "v3_2_balanced_style_memory"
             loss_dict = compute_dual_shift_loss(
                 clean_logits=outputs.clean_logits,
                 labels=batch["label"],
@@ -263,6 +305,15 @@ def run_dual_shift_epoch(
                 intervention_penalty=intervention_penalty if training else None,
                 lambda_intervention=float(ds.get("lambda_intervention", 0.001)),
                 intervention_mask=intervention_mask if training else None,
+                v3_2_mode=v3_2_mode,
+                rms_per_sample=extras.get("apis_rms_per_sample") if training else None,
+                style_target_error_per_sample=(
+                    extras.get("apis_style_target_error_per_sample") if training else None
+                ),
+                rms_min=float(ds.get("rms_min", 0.001)),
+                rms_max=float(ds.get("rms_max", 0.05)),
+                lambda_style=float(ds.get("lambda_style", 0.1)),
+                lambda_rms=float(ds.get("lambda_rms", 0.1)),
             )
             train_loss = loss_dict["total"]
             batch_size = len(batch["label"])
@@ -270,7 +321,7 @@ def run_dual_shift_epoch(
                 value = loss_dict.get(key)
                 if value is not None:
                     loss_component_sums[key] += float(value.detach()) * batch_size
-            if training:
+            if training and not bank_build:
                 optimizer.zero_grad(set_to_none=True)
                 train_loss.backward()
                 optimizer.step()
@@ -349,9 +400,11 @@ def run_dual_shift_epoch(
             "feature_consistency": loss_component_sums["feat"] / max(count, 1),
             "intervention_penalty": loss_component_sums["intervention"]
             / max(count, 1),
+            "style_target_loss": loss_component_sums["style"] / max(count, 1),
+            "rms_band_loss": loss_component_sums["rms_band"] / max(count, 1),
         }
     )
-    if getattr(model, "apis_variant", None) == "v3_style_memory":
+    if getattr(model, "apis_variant", None) in {"v3_style_memory", "v3_2_balanced_style_memory"}:
         style_valid = getattr(model.apis, "style_valid", None)
         style_counts = getattr(model.apis, "style_counts", None)
         if style_valid is not None:

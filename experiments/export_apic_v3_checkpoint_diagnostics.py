@@ -271,7 +271,8 @@ def _json_safe(value):
 
 
 def _diagnose_loader(
-    model, loader, split: str, device: torch.device, max_samples: int | None
+    model, loader, split: str, device: torch.device, max_samples: int | None,
+    variant: str = "apic_v3_x",
 ):
     rows = []
     apic = model.apis
@@ -292,11 +293,11 @@ def _diagnose_loader(
             clean_logits, clean_embedding, _ = model._heads(
                 clean_feats["layer4"], covariates, **head_kwargs
             )
-            style = torch.tanh(
-                apic.style_encoder(
-                    apic._style_stats(clean_feats["layer1"], clean_feats["layer2"])
-                )
-            )
+            if variant == "apic_v3_2_x":
+                teacher_l1, teacher_l2 = apic._teacher_stats(image)
+                style = apic._project(apic._descriptor(teacher_l1, teacher_l2))
+            else:
+                style = torch.tanh(apic.style_encoder(apic._style_stats(clean_feats["layer1"], clean_feats["layer2"])))
             if len(valid_slots):
                 distances = torch.cdist(style.float(), prototypes.float(), p=2)
                 assignment = torch.softmax(-distances / apic.temperature, dim=1)
@@ -305,17 +306,25 @@ def _diagnose_loader(
             else:
                 assignment = style.new_zeros((len(style), 0))
                 slots = torch.full((len(style),), -1, device=device, dtype=torch.long)
-            target_style, confidence, entropy = apic._target_style(style)
-            condition, valid_mask = apic.prepare_style_condition(
-                clean_feats["layer1"],
-                clean_feats["layer2"],
-                clean_feats["layer3"],
-                update_memory=False,
-            )
-            gate = apic._gate.detach()
+            if variant == "apic_v3_2_x":
+                condition, valid_mask = apic.prepare_style_condition(
+                    image, clean_feats["layer1"], clean_feats["layer2"]
+                )
+                state = apic._state
+                target_style = apic.style_prototypes[state["target"]]
+                confidence = state["confidence"]
+                entropy = state["entropy"]
+                gate = state["gate"].detach()
+            else:
+                target_style, confidence, entropy = apic._target_style(style)
+                condition, valid_mask = apic.prepare_style_condition(
+                    clean_feats["layer1"], clean_feats["layer2"], clean_feats["layer3"], update_memory=False
+                )
+                gate = apic._gate.detach()
             shift1, shift2 = apic.make_shift_fns(condition, valid_mask=valid_mask)
             shifted_feats = model.backbone(
-                image, shift_layer1=shift1, shift_layer2=shift2
+                image, shift_layer1=shift1, shift_layer2=shift2,
+                update_bn_stats=variant != "apic_v3_2_x",
             )
             shifted_logits, shifted_embedding, _ = model._heads(
                 shifted_feats["layer4"], covariates, **head_kwargs
@@ -427,6 +436,7 @@ def parse_args(argv=None):
         "--max-samples", type=int, help="Optional maximum number per selected split."
     )
     parser.add_argument("--allow-config-hash-mismatch", action="store_true")
+    parser.add_argument("--variant", choices=("apic_v3_x", "apic_v3_2_x"), default="apic_v3_x")
     return parser.parse_args(argv)
 
 
@@ -450,20 +460,25 @@ def main(argv=None) -> None:
     resolved_device = torch.device(
         args.device if args.device != "cuda" or torch.cuda.is_available() else "cpu"
     )
+    variant_dir = job_dir / args.variant
     checkpoint_path = (
         Path(args.checkpoint).resolve()
         if args.checkpoint
-        else job_dir / "apic_v3_x" / "best_checkpoint.pt"
+        else variant_dir / "best_checkpoint.pt"
     )
     checkpoint = _load_checkpoint(checkpoint_path, resolved_device)
-    if checkpoint.get("variant") != "apic_v3_x":
+    if checkpoint.get("variant") != args.variant:
         raise SystemExit(
-            f"Checkpoint variant must be apic_v3_x, got {checkpoint.get('variant')!r}"
+            f"Checkpoint variant must be {args.variant}, got {checkpoint.get('variant')!r}"
         )
     num_classes = len(
         set(int(value) for value in config["task"]["label_mapping"].values())
     )
-    model = _make_model(config, num_classes, "apic_v3_x").to(resolved_device)
+    model = _make_model(config, num_classes, args.variant).to(resolved_device)
+    if args.variant == "apic_v3_2_x":
+        # The frozen teacher is created at the phase boundary during training.
+        # Recreate its module structure before loading checkpoint teacher keys.
+        model.apis.freeze_teacher(model.backbone)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
     alpha = float(
@@ -484,13 +499,13 @@ def main(argv=None) -> None:
     for split in args.splits:
         rows.extend(
             _diagnose_loader(
-                model, loaders[split], split, resolved_device, args.max_samples
+                model, loaders[split], split, resolved_device, args.max_samples, args.variant
             )
         )
     output = (
         Path(args.output_dir).resolve()
         if args.output_dir
-        else job_dir / "apic_v3_x" / "diagnostics"
+        else variant_dir / "diagnostics"
     )
     output.mkdir(parents=True, exist_ok=True)
     _write_csv(output / "sample_diagnostics.csv", rows)

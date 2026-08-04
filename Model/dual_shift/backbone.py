@@ -62,14 +62,28 @@ class DualShiftBackbone(nn.Module):
         *,
         shift_layer1: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         shift_layer2: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+        update_bn_stats: bool = True,
     ) -> dict:
-        x = self.forward_stem(image)
-        f1 = self.layer1(x)
-        if shift_layer1 is not None:
-            f1 = shift_layer1(f1)
-        f2 = self.layer2(f1)
-        if shift_layer2 is not None:
-            f2 = shift_layer2(f2)
-        f3 = self.layer3(f2)
-        f4 = self.layer4(f3)
-        return {"layer1": f1, "layer2": f2, "layer3": f3, "layer4": f4}
+        # A shifted continuation must not update BN running statistics a second
+        # time for APIC v3_2.  BN affine parameters still receive gradients in
+        # eval mode, while the original training flags are restored afterward.
+        states = []
+        if not update_bn_stats and self.training:
+            for module in self.modules():
+                if isinstance(module, nn.modules.batchnorm._BatchNorm):
+                    states.append((module, module.training))
+                    module.training = False
+        try:
+            x = self.forward_stem(image)
+            f1 = self.layer1(x)
+            if shift_layer1 is not None:
+                f1 = shift_layer1(f1)
+            f2 = self.layer2(f1)
+            if shift_layer2 is not None:
+                f2 = shift_layer2(f2)
+            f3 = self.layer3(f2)
+            f4 = self.layer4(f3)
+            return {"layer1": f1, "layer2": f2, "layer3": f3, "layer4": f4}
+        finally:
+            for module, state in states:
+                module.training = state

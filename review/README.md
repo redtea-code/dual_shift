@@ -31,6 +31,7 @@
 | [`19_support_aware_paired_protocol_execution_plan_2026-08-03.md`](plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md) | Scan-aware 支持集与配对协议筛选计划 |
 | [`20_apic_v3_image_only_comparison_plan_2026-08-03.md`](plans/20_apic_v3_image_only_comparison_plan_2026-08-03.md) | APIC v3 严格 X / 扩展 X+D 多任务双向两种子对比计划 |
 | [`22_apic_v3_s1_3090_cn_ad_execution_plan_2026-08-03.md`](plans/22_apic_v3_s1_3090_cn_ad_execution_plan_2026-08-03.md) | 本机 3090：仅 CN_vs_AD × 三 X 变体执行计划 |
+| [`26_apic_v3_2_model_and_experiment_plan_2026-08-04.md`](plans/26_apic_v3_2_model_and_experiment_plan_2026-08-04.md) | APIC v3_2 机制修复、分阶段验证与性能筛选计划 |
 
 ### Records
 
@@ -69,6 +70,7 @@
 | [`05_dual_shift_apis_3seed_gate_a_report_2026-07-30.md`](analysis/05_dual_shift_apis_3seed_gate_a_report_2026-07-30.md) | Windows 三种子 Gate A 报告 |
 | [`07_apis_3seed_windows_vs_remote_compare_2026-07-30.md`](analysis/07_apis_3seed_windows_vs_remote_compare_2026-07-30.md) | Windows/Linux 结果对比 |
 | [`08_dual_shift_apis_3seed_analysis_2026-07-30.md`](analysis/08_dual_shift_apis_3seed_analysis_2026-07-30.md) | APIS 三种子综合分析与下一步指导 |
+| [`27_apic_v3_2_implementation_review_2026-08-04.md`](analysis/27_apic_v3_2_implementation_review_2026-08-04.md) | APIC v3_2 原型与研究计划一致性审阅；正式 revision 4 阻断项 |
 
 ### Operations
 

@@ -25,6 +25,11 @@ Dual-Shift 实验代码、结构化结果与研究记录仓库。
 - Support-aware paired protocol 执行计划：[`review/plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md`](review/plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md)
 - APIC v3 image-only 对比实验计划：[`review/plans/20_apic_v3_image_only_comparison_plan_2026-08-03.md`](review/plans/20_apic_v3_image_only_comparison_plan_2026-08-03.md)
 - APIC v3 失败机制诊断：[`review/operations/24_apic_v3_failure_diagnostics_2026-08-04.md`](review/operations/24_apic_v3_failure_diagnostics_2026-08-04.md)
+- APIC v3_2 模型设计草案：[`Model/APIC_V3_2_MODEL_DESIGN_DRAFT.md`](Model/APIC_V3_2_MODEL_DESIGN_DRAFT.md)
+- APIC v3_2 分阶段实验计划：[`review/plans/26_apic_v3_2_model_and_experiment_plan_2026-08-04.md`](review/plans/26_apic_v3_2_model_and_experiment_plan_2026-08-04.md)
+- APIC v3_2 实现审阅：[`review/analysis/27_apic_v3_2_implementation_review_2026-08-04.md`](review/analysis/27_apic_v3_2_implementation_review_2026-08-04.md)
+- APIC v3_2-A 配置：`journal_dual_shift_apic_v3_2_screen_{cn_ad,mci_ad}.yaml`
+- APIC v3_2-A launcher：`experiments/run_apic_v3_2_screening.py`
 - Dual-Shift 模型初步设计：[`Model/DUAL_SHIFT_MODEL_PRELIMINARY_DESIGN.md`](Model/DUAL_SHIFT_MODEL_PRELIMINARY_DESIGN.md)
 
 新增实验文档必须先按主要用途放入 `review/plans/`、`review/records/`、
