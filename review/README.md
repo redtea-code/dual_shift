@@ -62,6 +62,7 @@
 | [`apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md`](records/apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md) | 5090：APIC v3 MCI vs AD 失败机制诊断（ops 24） |
 | [`apic_v3/5090/apic_v3_failure_diagnostics_2026-08-04/`](records/apic_v3/5090/apic_v3_failure_diagnostics_2026-08-04/) | 5090：ops 24 诊断机读产物 |
 | [`apic_v3_2/`](records/apic_v3_2/README.md) | APIC v3_2（revision 4）原型实验记录 |
+| [`apic_v3_2/3090/31_apic_v3_2_cn_ad_r4_prototype_metrics_2026-08-05.md`](records/apic_v3_2/3090/31_apic_v3_2_cn_ad_r4_prototype_metrics_2026-08-05.md) | 3090：APIC v3_2 CN prototype 12-run 主表 |
 | [`apic_v3_2/5090/29_apic_v3_2_mci_ad_r4_primary_2026-08-05.md`](records/apic_v3_2/5090/29_apic_v3_2_mci_ad_r4_primary_2026-08-05.md) | 5090：APIC v3_2 MCI vs AD 原型主表（12/12） |
 | [`apic_v3_2/5090/30_apic_v3_2_mci_ad_r4_primary_report_2026-08-05.md`](records/apic_v3_2/5090/30_apic_v3_2_mci_ad_r4_primary_report_2026-08-05.md) | 5090：APIC v3_2 MCI vs AD 执行报告 |
 | [`apic_v3_2/5090/apic_v3_2_mci_ad_r4_primary_logs/`](records/apic_v3_2/5090/apic_v3_2_mci_ad_r4_primary_logs/) | 5090：APIC v3_2 MCI 训练日志 |
@@ -75,6 +76,7 @@
 | [`07_apis_3seed_windows_vs_remote_compare_2026-07-30.md`](analysis/07_apis_3seed_windows_vs_remote_compare_2026-07-30.md) | Windows/Linux 结果对比 |
 | [`08_dual_shift_apis_3seed_analysis_2026-07-30.md`](analysis/08_dual_shift_apis_3seed_analysis_2026-07-30.md) | APIS 三种子综合分析与下一步指导 |
 | [`27_apic_v3_2_implementation_review_2026-08-04.md`](analysis/27_apic_v3_2_implementation_review_2026-08-04.md) | APIC v3_2 原型与研究计划一致性审阅；正式 revision 4 阻断项 |
+| [`32_apic_v3_2_cn_ad_r4_prototype_run_report_2026-08-05.md`](analysis/32_apic_v3_2_cn_ad_r4_prototype_run_report_2026-08-05.md) | 3090：APIC v3_2 CN prototype 运行报告（12/12） |
 
 ### Operations
 
