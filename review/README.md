@@ -36,7 +36,7 @@
 ### Records
 
 版本化实验采用“方法优先、运行环境次级”的目录结构：
-`records/<method>/<environment>/`。当前冻结的方法目录为 `apis_v2/` 与 `apic_v3/`；
+`records/<method>/<environment>/`。当前冻结的方法目录为 `apis_v2/`、`apic_v3/` 与 `apic_v3_2/`；
 早于该约定的 Dual-Shift/APIS 历史记录保留在 `records/` 根目录。
 
 | 文档 | 作用 |
@@ -61,6 +61,10 @@
 | [`apic_v3/5090/apic_v3_screening_mci_ad_primary_logs/`](records/apic_v3/5090/apic_v3_screening_mci_ad_primary_logs/) | 5090：APIC v3 MCI_vs_AD primary 训练日志 |
 | [`apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md`](records/apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md) | 5090：APIC v3 MCI vs AD 失败机制诊断（ops 24） |
 | [`apic_v3/5090/apic_v3_failure_diagnostics_2026-08-04/`](records/apic_v3/5090/apic_v3_failure_diagnostics_2026-08-04/) | 5090：ops 24 诊断机读产物 |
+| [`apic_v3_2/`](records/apic_v3_2/README.md) | APIC v3_2（revision 4）原型实验记录 |
+| [`apic_v3_2/5090/29_apic_v3_2_mci_ad_r4_primary_2026-08-05.md`](records/apic_v3_2/5090/29_apic_v3_2_mci_ad_r4_primary_2026-08-05.md) | 5090：APIC v3_2 MCI vs AD 原型主表（12/12） |
+| [`apic_v3_2/5090/30_apic_v3_2_mci_ad_r4_primary_report_2026-08-05.md`](records/apic_v3_2/5090/30_apic_v3_2_mci_ad_r4_primary_report_2026-08-05.md) | 5090：APIC v3_2 MCI vs AD 执行报告 |
+| [`apic_v3_2/5090/apic_v3_2_mci_ad_r4_primary_logs/`](records/apic_v3_2/5090/apic_v3_2_mci_ad_r4_primary_logs/) | 5090：APIC v3_2 MCI 训练日志 |
 
 ### Analysis
 
