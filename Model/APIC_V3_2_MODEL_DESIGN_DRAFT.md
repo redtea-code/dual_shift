@@ -165,7 +165,10 @@ assignment-label 关联。标签仅用于拒绝诊断相关原型，不参与原
 
 - 排除 `k_src`；
 - `n_k` 达到最小支持量；
-- 原型间距离位于 `mechanism_fit` 冻结的 `[delta_min, delta_max]`；
+- 原型间**相对距离**位于 `mechanism_fit`/`mechanism_calibration` 冻结的
+  `[delta_min, delta_max]`。相对距离定义为
+  `||c_tgt-c_src|| / ((r_src+r_tgt)/2)`；不得以 PCA 原始距离直接套用
+  与其量纲无关的阈值；
 - 优先从两个最近的合法替代原型中确定性采样。
 
 采样必须使用无状态 hash，例如 `(run_seed, epoch, subject_id, scan_id)`；checkpoint 诊断固定使用

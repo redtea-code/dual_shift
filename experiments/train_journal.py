@@ -1201,7 +1201,7 @@ def _train_variant(
                 "epoch": epoch + 1,
                 "train_loss": train_result["loss"],
                 "val_loss": val_result["loss"],
-                "val_auc": key[-1] if isinstance(key[-1], (int, float)) else None,
+                "val_selector_ema_ba": key[-1] if isinstance(key[-1], (int, float)) else None,
                 "phase": train_result.get("phase"),
                 "apis_coefficient_l2": train_result.get("apis_coefficient_l2"),
                 "valid_intervention_frac": train_result.get("valid_intervention_frac"),
@@ -1209,6 +1209,9 @@ def _train_variant(
                 "style_confidence": train_result.get("style_confidence"),
                 "style_entropy": train_result.get("style_entropy"),
                 "style_delta": train_result.get("style_delta"),
+                "prototype_relative_separation": train_result.get(
+                    "prototype_relative_separation"
+                ),
                 "condition_gate": train_result.get("condition_gate"),
                 "style_memory_valid_slots": train_result.get(
                     "style_memory_valid_slots"
@@ -1237,7 +1240,7 @@ def _train_variant(
         print(
             f"[journal] {variant} epoch {epoch + 1}/{int(config['training']['epochs'])} "
             f"train_loss={train_result['loss']:.4f} val_loss={val_result['loss']:.4f} "
-            f"val_auc={history[-1]['val_auc']} "
+            f"val_selector_ema_ba={history[-1]['val_selector_ema_ba']} "
             f"phase={train_result.get('phase')} "
             f"apis_l2={train_result.get('apis_coefficient_l2')} "
             f"valid_frac={train_result.get('valid_intervention_frac')}",

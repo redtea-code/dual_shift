@@ -126,15 +126,23 @@ def compute_dual_shift_loss(
         losses["shift_ce"] = shift_ce
         losses["js"] = js
         if v3_2_mode:
-            # Average clean and supported shifted CE instead of rewarding the
-            # old zero-intervention shortcut with two identical full terms.
-            total = 0.5 * (clean_ce + shift_ce) + lambda_js * js
+            # shift_ce already implements the revision-4 classification loss:
+            # unsupported rows are clean CE and supported rows receive 50/50
+            # clean/shifted CE. Do not average clean CE a second time.
+            total = shift_ce + lambda_js * js
         else:
             total = total + lambda_shift * shift_ce + lambda_js * js
         if clean_embedding is not None and shifted_embedding is not None:
-            feat = feature_cosine_loss(
-                clean_embedding, shifted_embedding, shift_weights
-            )
+            if v3_2_mode:
+                feature_per = 1.0 - (
+                    F.normalize(clean_embedding, dim=1)
+                    * F.normalize(shifted_embedding, dim=1)
+                ).sum(dim=1)
+                feat = (feature_per * mask * base_weights).sum() / denom
+            else:
+                feat = feature_cosine_loss(
+                    clean_embedding, shifted_embedding, shift_weights
+                )
             losses["feat"] = feat
             total = total + lambda_feat * feat
         if penalize_alpha_overflow:
@@ -150,8 +158,8 @@ def compute_dual_shift_loss(
                     -1
                 )
                 pen = pen.reshape(-1)
-                denom = mask.sum().clamp_min(1.0)
-                pen = (pen * mask).sum() / denom
+                pen_denom = mask.sum().clamp_min(1.0)
+                pen = (pen * mask).sum() / pen_denom
             elif pen.ndim > 0:
                 pen = pen.mean()
             losses["intervention"] = pen

@@ -49,7 +49,8 @@ class StyleTeacher(nn.Module):
     @torch.no_grad()
     def forward(self, image: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.maxpool(self.relu(self.bn1(self.conv1(image))))
-        return self.layer1(x), self.layer2(self.layer1(x))
+        layer1 = self.layer1(x)
+        return layer1, self.layer2(layer1)
 
 
 class FixedStyleBankAPICV32(nn.Module):
@@ -72,8 +73,8 @@ class FixedStyleBankAPICV32(nn.Module):
         temperature: float = 0.5,
         rms_min: float = 0.001,
         rms_max: float = 0.05,
-        delta_min: float = 0.02,
-        delta_max: float = 0.50,
+        delta_min: float = 0.50,
+        delta_max: float = 3.00,
         g_min: float = 0.20,
         g_max: float = 0.80,
         min_cluster_count: int = 2,
@@ -104,6 +105,7 @@ class FixedStyleBankAPICV32(nn.Module):
         self._observed_fit: list[tuple[torch.Tensor, list[str]]] = []
         self._observed_calibration: list[tuple[torch.Tensor, list[str]]] = []
         self._observed_count = 0
+        self._requires_calibration = False
         self._finalized = False
         self._state: Dict[str, torch.Tensor] = {}
         self._last_audit: Dict[str, torch.Tensor] = {}
@@ -115,6 +117,11 @@ class FixedStyleBankAPICV32(nn.Module):
         self.register_buffer("style_prototypes", torch.zeros(self.memory_size, self.style_dim))
         self.register_buffer("style_counts", torch.zeros(self.memory_size))
         self.register_buffer("prototype_radii", torch.ones(self.memory_size))
+        self.register_buffer(
+            "prototype_pair_relative_distance",
+            torch.zeros(self.memory_size, self.memory_size),
+            persistent=False,
+        )
         self.register_buffer("style_valid", torch.zeros(self.memory_size, dtype=torch.bool))
         self.register_buffer("prototype_mu1", torch.zeros(self.memory_size, self.layer1_channels))
         self.register_buffer("prototype_logstd1", torch.zeros(self.memory_size, self.layer1_channels))
@@ -153,6 +160,7 @@ class FixedStyleBankAPICV32(nn.Module):
             self._observed_fit.append((value, [f"sample-{self._observed_count + i}" for i in range(len(value))]))
             self._observed_count += len(value)
             return
+        self._requires_calibration = True
         ids = [str(x) for x in subject_ids][:len(value)]
         fit, calibration, fit_ids, calibration_ids = [], [], [], []
         for index, subject in enumerate(ids):
@@ -177,6 +185,7 @@ class FixedStyleBankAPICV32(nn.Module):
             self._observed_fit.clear()
             self._observed_calibration.clear()
             self._observed_count = 0
+            self._requires_calibration = False
 
     @staticmethod
     def _kmeans(values: torch.Tensor, k: int, iterations: int = 20) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -222,6 +231,13 @@ class FixedStyleBankAPICV32(nn.Module):
             return torch.stack([values[indexes].mean(dim=0) for indexes in groups.values()])
 
         raw = subject_means(self._observed_fit)
+        if self._requires_calibration and not self._observed_calibration:
+            if strict:
+                raise RuntimeError("APIC v3_2 mechanism_calibration is empty")
+            self._finalized = False
+            return
+        # Synthetic module probes without subject IDs have no declared split.
+        # Formal training always supplies IDs and must take the branch above.
         calibration = subject_means(self._observed_calibration) if self._observed_calibration else raw
         if raw.shape[0] < self.memory_size * self.min_cluster_count:
             if strict:
@@ -243,21 +259,6 @@ class FixedStyleBankAPICV32(nn.Module):
         self.pca_components.copy_(components.to(self.pca_components.device))
         projected = (centered @ components.t()).contiguous()
         prototypes, assignments = self._kmeans(projected, self.memory_size)
-        # Repair empty/under-occupied slots before exposing the bank.  This is
-        # a deterministic occupancy constraint, not a target-domain heuristic.
-        if projected.shape[0] >= self.memory_size * self.min_cluster_count:
-            for slot in range(self.memory_size):
-                while int((assignments == slot).sum().item()) < self.min_cluster_count:
-                    counts = torch.stack([(assignments == item).sum() for item in range(self.memory_size)])
-                    donor = int(counts.argmax().item())
-                    candidates = torch.nonzero(assignments == donor, as_tuple=False).flatten()
-                    if candidates.numel() <= self.min_cluster_count:
-                        break
-                    donor_distance = (projected[candidates] - prototypes[donor]).square().sum(dim=1)
-                    moved = candidates[int(donor_distance.argmax().item())]
-                    assignments[moved] = slot
-                    prototypes[slot] = projected[assignments == slot].mean(dim=0)
-                    prototypes[donor] = projected[assignments == donor].mean(dim=0)
         self.style_prototypes.copy_(prototypes.to(self.style_prototypes.device))
         for slot in range(self.memory_size):
             mask = assignments == slot
@@ -292,7 +293,22 @@ class FixedStyleBankAPICV32(nn.Module):
             if bool(mask.any()) and bool(self.style_valid[slot]):
                 radius = (calibration_projected[mask] - prototypes[slot]).square().sum(dim=1).sqrt().quantile(0.95)
                 self.prototype_radii[slot] = radius.clamp_min(1e-3)
-        self._finalized = bool(self.style_valid.sum().item() >= 2 and (cal_counts > 0).sum().item() >= 2)
+        pair_distance = (prototypes[:, None] - prototypes[None]).square().sum(dim=2).sqrt()
+        pair_scale = (self.prototype_radii[:, None] + self.prototype_radii[None]) / 2.0
+        self.prototype_pair_relative_distance.copy_(
+            (pair_distance / pair_scale.clamp_min(1e-6)).to(
+                self.prototype_pair_relative_distance.device
+            )
+        )
+        initialized = bool(
+            self.style_valid.all().item()
+            and (cal_counts >= self.min_cluster_count).all().item()
+        )
+        if strict and not initialized:
+            raise RuntimeError(
+                "APIC v3_2 style bank lacks per-slot fit or calibration support"
+            )
+        self._finalized = initialized
         self._observed_fit.clear()
         self._observed_calibration.clear()
 
@@ -306,6 +322,15 @@ class FixedStyleBankAPICV32(nn.Module):
         normalized = (raw - self.descriptor_center.to(raw.device)) / self.descriptor_scale.to(raw.device)
         centered = normalized - self.pca_mean.to(raw.device)
         return centered @ self.pca_components.to(raw.device).t()
+
+    def _relative_pair_distance(
+        self, source: torch.Tensor, target: torch.Tensor
+    ) -> torch.Tensor:
+        prototypes = self.style_prototypes.to(source.device)
+        radii = self.prototype_radii.to(source.device)
+        separation = (prototypes[source] - prototypes[target]).norm(dim=1)
+        scale = (radii[source] + radii[target]) / 2.0
+        return separation / scale.clamp_min(1e-6)
 
     def prepare_style_condition(
         self,
@@ -345,7 +370,14 @@ class FixedStyleBankAPICV32(nn.Module):
             choices = [
                 int(slot) for slot in valid_slots[sorted_slots[row]].tolist()
                 if int(slot) != src_slot
-                and self.delta_min <= float((self.style_prototypes[slot] - self.style_prototypes[src_slot]).norm()) <= self.delta_max
+                and self.delta_min
+                <= float(
+                    self._relative_pair_distance(
+                        torch.tensor([src_slot], device=style.device),
+                        torch.tensor([slot], device=style.device),
+                    ).item()
+                )
+                <= self.delta_max
             ]
             ids = sample_ids if sample_ids is not None and len(sample_ids) == style.shape[0] else [f"sample-{row}" for row in range(style.shape[0])]
             key = str(ids[row]).encode("utf-8")
@@ -354,8 +386,8 @@ class FixedStyleBankAPICV32(nn.Module):
         src_dist = distances.gather(1, nearest[:, None]).sqrt().squeeze(1)
         support_radius = self.prototype_radii.to(style.device)[src]
         valid = src_dist <= support_radius
-        separation = (self.style_prototypes[src] - self.style_prototypes[target]).norm(dim=1)
-        valid = valid & (separation > 1e-4)
+        relative_separation = self._relative_pair_distance(src, target)
+        valid = valid & (relative_separation > 1e-4)
         confidence = (1.0 - src_dist / support_radius.clamp_min(1e-6)).clamp(0.0, 1.0)
         gate = valid.to(style.dtype) * (self.g_min + (self.g_max - self.g_min) * confidence)
         self._state = {
@@ -364,6 +396,7 @@ class FixedStyleBankAPICV32(nn.Module):
             "gate": gate,
             "style": style,
             "confidence": confidence,
+            "relative_separation": relative_separation,
             "entropy": (-(torch.softmax(-distances / self.temperature, dim=1).clamp_min(1e-8).log() * torch.softmax(-distances / self.temperature, dim=1)).sum(dim=1)),
             "delta_mu1": self.prototype_mu1[target] - self.prototype_mu1[src],
             "delta_logstd1": self.prototype_logstd1[target] - self.prototype_logstd1[src],
@@ -440,6 +473,9 @@ class FixedStyleBankAPICV32(nn.Module):
             "style_target_error_per_sample": target_ps,
             "style_confidence": self._state.get("confidence", reference.new_zeros((n,))).mean(),
             "style_entropy": self._state.get("entropy", reference.new_zeros((n,))).mean(),
+            "prototype_relative_separation": self._state.get(
+                "relative_separation", reference.new_zeros((n,))
+            ).mean(),
             "condition_gate": gate.mean(),
             "style_delta": target_ps.mean(),
             "effective_slots": reference.new_tensor(float(self.style_valid.sum().item())),

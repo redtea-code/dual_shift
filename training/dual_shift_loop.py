@@ -240,6 +240,7 @@ def run_dual_shift_epoch(
         "style_confidence",
         "style_entropy",
         "style_delta",
+        "prototype_relative_separation",
         "condition_gate",
         "apis_effective_slots",
         "apis_max_slot_share",
