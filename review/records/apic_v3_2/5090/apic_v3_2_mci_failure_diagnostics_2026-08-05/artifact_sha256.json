@@ -1,0 +1,97 @@
+[
+  {
+    "path": "ENVIRONMENT.md",
+    "sha256": "351f99c052d0f3754f1fd64ac0b338483f1abed99e12d095eeac32dd8d7a5d6d",
+    "bytes": 387
+  },
+  {
+    "path": "README.md",
+    "sha256": "53a451b1773115c376cc5b01c8f831f6312925ad8a8aae8e77d631dd83adfa32",
+    "bytes": 597
+  },
+  {
+    "path": "checkpoint/full_stdout.txt",
+    "sha256": "62f549af36837944e7af743df17e670db8240d0251ca7ef3327122df00cd14fd",
+    "bytes": 568
+  },
+  {
+    "path": "checkpoint/layer2_seed42_adni_to_nacc_stdout.txt",
+    "sha256": "c28d7be93fe6a970acabb735d6621c9cb5be48c41aa5ff892a2b449141a04bc5",
+    "bytes": 157
+  },
+  {
+    "path": "checkpoint/layer2_seed42_nacc_to_adni_stdout.txt",
+    "sha256": "1f3dad315544ad8cd4c799b3cddd8f7fb2b9639dbfbbbf1e2cdb866fb16ee75c",
+    "bytes": 157
+  },
+  {
+    "path": "checkpoint/seed42_adni_to_nacc/diagnostic_summary.json",
+    "sha256": "a9357eeb8342dae4cbe4c2768dbb4e1b09709c3369593061092aed962cf8e9db",
+    "bytes": 12558
+  },
+  {
+    "path": "checkpoint/seed42_adni_to_nacc/sample_diagnostics.csv",
+    "sha256": "82e6dbe91d5dd49dadce61a105d40c02aa495ddcc7f8c01bf7c76794ee6fb741",
+    "bytes": 2504692
+  },
+  {
+    "path": "checkpoint/seed42_adni_to_nacc_smoke/diagnostic_summary.json",
+    "sha256": "3fc1728862fd9a261438e722f66c241aed619e051d5d25635d4386d4e728c3f1",
+    "bytes": 12328
+  },
+  {
+    "path": "checkpoint/seed42_adni_to_nacc_smoke/sample_diagnostics.csv",
+    "sha256": "d8e4fe0a4c7462315993bae3565ff486292aa83761ee5111d5dcf21f1dfa3c92",
+    "bytes": 243518
+  },
+  {
+    "path": "checkpoint/seed42_nacc_to_adni/diagnostic_summary.json",
+    "sha256": "7cacb164a7d99b100e28122314e5f91268e2e59cf5f08f0d71b16f31ffd54854",
+    "bytes": 12425
+  },
+  {
+    "path": "checkpoint/seed42_nacc_to_adni/sample_diagnostics.csv",
+    "sha256": "183752b01077626c6077ede45a1286dc3fc2463371ec7f252322051c5024157d",
+    "bytes": 2511580
+  },
+  {
+    "path": "checkpoint/seed42_nacc_to_adni_smoke/diagnostic_summary.json",
+    "sha256": "c066d7987c583761698bb125e672b8306606b3bb2a9a11eb061c4ee7e67e127d",
+    "bytes": 12189
+  },
+  {
+    "path": "checkpoint/seed42_nacc_to_adni_smoke/sample_diagnostics.csv",
+    "sha256": "272cd4d4f9975fd6bcfa7e9298ff93d40cdb9f2985c97cdc3c59b24e5604055e",
+    "bytes": 244745
+  },
+  {
+    "path": "checkpoint/smoke_seed42_adni_stdout.txt",
+    "sha256": "f6479ae20777b7d7d763c9a7ab4f263913906d2b408a6acdca088a7d3530f126",
+    "bytes": 156
+  },
+  {
+    "path": "checkpoint/smoke_seed42_nacc_stdout.txt",
+    "sha256": "04bad28d19963f5eeb296f192c6672bfa030eca441a80fa0e22b0a47ddbf9968",
+    "bytes": 156
+  },
+  {
+    "path": "history/apic_v3_epoch_history.csv",
+    "sha256": "1ca702e21e61b3c1b9ad0eb54b776a61160963ca555b2e5f68ff080ec551dab2",
+    "bytes": 231640
+  },
+  {
+    "path": "history/apic_v3_history_summary.csv",
+    "sha256": "bdd525ab29609520a5f4fc817250cb944c0edfb8463a1912d15f9885c1106d31",
+    "bytes": 8299
+  },
+  {
+    "path": "history/apic_v3_history_summary.json",
+    "sha256": "b2272c81a4de08baffea786ed942629b97a9ba7915ec0ff1a89843587f3752f4",
+    "bytes": 16891
+  },
+  {
+    "path": "history/layer1_stdout.txt",
+    "sha256": "027d38c8c6f84c7717fb77705b6df205d3a58f96783946c75dbbe08227c8067f",
+    "bytes": 129
+  }
+]
