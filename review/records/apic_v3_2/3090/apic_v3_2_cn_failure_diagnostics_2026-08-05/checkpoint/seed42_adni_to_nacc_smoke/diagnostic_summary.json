@@ -1,0 +1,439 @@
+{
+  "config": "D:\\cyh\\dictionary_learn\\journal_dual_shift_apic_v3_2_screen_cn_ad.yaml",
+  "config_hash": "fa34c1b7564c56bf1181a46c9fb55b4cf575f17b3bff18c7ac041b3423ab40fc",
+  "config_sha256": "dbdf6b722abf6eaf4fed5207ea87869f7a815f0bde2b9737d9b803c4d902e44f",
+  "manifest_config_hash": "fa34c1b7564c56bf1181a46c9fb55b4cf575f17b3bff18c7ac041b3423ab40fc",
+  "manifest_sha256": "9c2aadbcff845362bad707ffd2183397bb48d680416b6b616da062bcfc37d95e",
+  "checkpoint": "D:\\cyh\\dictionary_learn\\outputs\\journal\\apic_v3_2_screening_cn_ad\\r4\\seed42\\adni_to_nacc\\apic_v3_2_x\\best_checkpoint.pt",
+  "checkpoint_sha256": "215483a29fe3048376874bc33a50e8bb5b87e7d7f67bbeb14ab45c2fd6f8bf34",
+  "checkpoint_epoch": 35,
+  "checkpoint_selection": {
+    "val_score": 0.8627717391304349,
+    "val_loss": 0.5964646954166625,
+    "seed": 42,
+    "collapse_guard": null,
+    "performance_selector": {
+      "metric": "subject_balanced_accuracy",
+      "window": 3,
+      "ema": 0.8627717391304349,
+      "current": 0.8627717391304348
+    }
+  },
+  "git_head": "9acb30fdb0349167360aad249ea00c9d4ed989a5",
+  "torch_version": "1.13.0+cu117",
+  "cuda_version": "11.7",
+  "device": "cuda",
+  "diagnostic_alpha": 0.25,
+  "counterfactual_only": true,
+  "reference_prediction_checks": {
+    "source_val": {
+      "available": true,
+      "path": "D:\\cyh\\dictionary_learn\\outputs\\journal\\apic_v3_2_screening_cn_ad\\r4\\seed42\\adni_to_nacc\\apic_v3_2_x\\source_val_predictions.csv",
+      "n_diagnostic": 32,
+      "n_matched": 32,
+      "n_missing": 0,
+      "missing_folders": [],
+      "label_mismatches": 0,
+      "max_probability_abs_difference": 5.960464477539063e-08,
+      "matches_within_1e_5": true
+    },
+    "source_test": {
+      "available": true,
+      "path": "D:\\cyh\\dictionary_learn\\outputs\\journal\\apic_v3_2_screening_cn_ad\\r4\\seed42\\adni_to_nacc\\apic_v3_2_x\\source_test_predictions.csv",
+      "n_diagnostic": 32,
+      "n_matched": 32,
+      "n_missing": 0,
+      "missing_folders": [],
+      "label_mismatches": 0,
+      "max_probability_abs_difference": 1.1920928955078125e-07,
+      "matches_within_1e_5": true
+    },
+    "target": {
+      "available": true,
+      "path": "D:\\cyh\\dictionary_learn\\outputs\\journal\\apic_v3_2_screening_cn_ad\\r4\\seed42\\adni_to_nacc\\apic_v3_2_x\\target_predictions.csv",
+      "n_diagnostic": 32,
+      "n_matched": 32,
+      "n_missing": 0,
+      "missing_folders": [],
+      "label_mismatches": 0,
+      "max_probability_abs_difference": 2.9802322387695312e-08,
+      "matches_within_1e_5": true
+    }
+  },
+  "memory_valid_slots": 4,
+  "memory_counts": [
+    18.0,
+    14.0,
+    28.0,
+    33.0
+  ],
+  "splits": {
+    "source_train": {
+      "n": 32,
+      "clean_metrics": {
+        "n": 32,
+        "accuracy": 1.0,
+        "balanced_accuracy": 1.0,
+        "macro_f1": 1.0,
+        "auc": 1.0,
+        "brier": 4.428137302793792e-09,
+        "ece": 3.792904317378998e-05,
+        "sensitivity": 1.0,
+        "specificity": 1.0,
+        "positive_class": 1,
+        "num_classes": 2,
+        "n_subjects": 32,
+        "aggregation": "none",
+        "label_conflict": null,
+        "per_group": {},
+        "worst_group_auc": null,
+        "group_gap": null
+      },
+      "shifted_metrics": {
+        "n": 32,
+        "accuracy": 1.0,
+        "balanced_accuracy": 1.0,
+        "macro_f1": 1.0,
+        "auc": 1.0,
+        "brier": 4.428137302793792e-09,
+        "ece": 3.792904317378998e-05,
+        "sensitivity": 1.0,
+        "specificity": 1.0,
+        "positive_class": 1,
+        "num_classes": 2,
+        "n_subjects": 32,
+        "aggregation": "none",
+        "label_conflict": null,
+        "per_group": {},
+        "worst_group_auc": null,
+        "group_gap": null
+      },
+      "prediction_flip_rate": 0.0,
+      "style_confidence": {
+        "mean": 0.27370252273976803,
+        "p05": 0.0,
+        "p50": 0.26287195086479187,
+        "p95": 0.6193039834499359
+      },
+      "style_entropy": {
+        "mean": 3.5055556679741787e-08,
+        "p05": -0.0,
+        "p50": -0.0,
+        "p95": 4.809364411088002e-19
+      },
+      "style_delta": {
+        "mean": 3.580654226243496,
+        "p05": 1.9402545988559723,
+        "p50": 3.5291978120803833,
+        "p95": 6.019250369071959
+      },
+      "condition_gate": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "layer1_relative_rms": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "layer2_relative_rms": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "embedding_cosine_distance": {
+        "mean": 9.313225746154785e-09,
+        "p05": -1.1920928955078125e-07,
+        "p50": 0.0,
+        "p95": 1.1920928955078125e-07
+      },
+      "js_divergence": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      }
+    },
+    "source_val": {
+      "n": 32,
+      "clean_metrics": {
+        "n": 32,
+        "accuracy": 0.78125,
+        "balanced_accuracy": 0.8085714285714285,
+        "macro_f1": 0.7380116959064327,
+        "auc": 0.937142857142857,
+        "brier": 0.15834855942103843,
+        "ece": 0.17875670455396175,
+        "sensitivity": 0.76,
+        "specificity": 0.8571428571428571,
+        "positive_class": 1,
+        "num_classes": 2,
+        "n_subjects": 32,
+        "aggregation": "none",
+        "label_conflict": null,
+        "per_group": {},
+        "worst_group_auc": null,
+        "group_gap": null
+      },
+      "shifted_metrics": {
+        "n": 32,
+        "accuracy": 0.78125,
+        "balanced_accuracy": 0.8085714285714285,
+        "macro_f1": 0.7380116959064327,
+        "auc": 0.937142857142857,
+        "brier": 0.15834855942103843,
+        "ece": 0.17875670455396175,
+        "sensitivity": 0.76,
+        "specificity": 0.8571428571428571,
+        "positive_class": 1,
+        "num_classes": 2,
+        "n_subjects": 32,
+        "aggregation": "none",
+        "label_conflict": null,
+        "per_group": {},
+        "worst_group_auc": null,
+        "group_gap": null
+      },
+      "prediction_flip_rate": 0.0,
+      "style_confidence": {
+        "mean": 0.3705103751271963,
+        "p05": 0.09036783277988435,
+        "p50": 0.3631522059440613,
+        "p95": 0.6362502574920654
+      },
+      "style_entropy": {
+        "mean": 2.675415814722307e-23,
+        "p05": -0.0,
+        "p50": -0.0,
+        "p95": 2.673435019498196e-24
+      },
+      "style_delta": {
+        "mean": 3.005941078066826,
+        "p05": 1.5389787554740906,
+        "p50": 2.874441385269165,
+        "p95": 4.863899803161621
+      },
+      "condition_gate": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "layer1_relative_rms": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "layer2_relative_rms": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "embedding_cosine_distance": {
+        "mean": -1.1175870895385742e-08,
+        "p05": -1.1920928955078125e-07,
+        "p50": 0.0,
+        "p95": 8.642673492431636e-08
+      },
+      "js_divergence": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      }
+    },
+    "source_test": {
+      "n": 32,
+      "clean_metrics": {
+        "n": 32,
+        "accuracy": 0.90625,
+        "balanced_accuracy": 0.95,
+        "macro_f1": 0.7593984962406015,
+        "auc": 0.9333333333333333,
+        "brier": 0.07089272867926676,
+        "ece": 0.06252721510827547,
+        "sensitivity": 0.9,
+        "specificity": 1.0,
+        "positive_class": 1,
+        "num_classes": 2,
+        "n_subjects": 32,
+        "aggregation": "none",
+        "label_conflict": null,
+        "per_group": {},
+        "worst_group_auc": null,
+        "group_gap": null
+      },
+      "shifted_metrics": {
+        "n": 32,
+        "accuracy": 0.90625,
+        "balanced_accuracy": 0.95,
+        "macro_f1": 0.7593984962406015,
+        "auc": 0.9333333333333333,
+        "brier": 0.07089272867926676,
+        "ece": 0.06252721510827547,
+        "sensitivity": 0.9,
+        "specificity": 1.0,
+        "positive_class": 1,
+        "num_classes": 2,
+        "n_subjects": 32,
+        "aggregation": "none",
+        "label_conflict": null,
+        "per_group": {},
+        "worst_group_auc": null,
+        "group_gap": null
+      },
+      "prediction_flip_rate": 0.0,
+      "style_confidence": {
+        "mean": 0.29490165412425995,
+        "p05": 0.0,
+        "p50": 0.3128330111503601,
+        "p95": 0.5814689695835114
+      },
+      "style_entropy": {
+        "mean": 3.458192898708745e-10,
+        "p05": -0.0,
+        "p50": -0.0,
+        "p95": 1.9995205491341006e-09
+      },
+      "style_delta": {
+        "mean": 3.68169866502285,
+        "p05": 2.154985785484314,
+        "p50": 3.1758811473846436,
+        "p95": 5.7707088708877565
+      },
+      "condition_gate": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "layer1_relative_rms": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "layer2_relative_rms": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "embedding_cosine_distance": {
+        "mean": 1.1175870895385742e-08,
+        "p05": -1.1920928955078125e-07,
+        "p50": 0.0,
+        "p95": 1.1920928955078125e-07
+      },
+      "js_divergence": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      }
+    },
+    "target": {
+      "n": 32,
+      "clean_metrics": {
+        "n": 32,
+        "accuracy": 0.90625,
+        "balanced_accuracy": 0.8629629629629629,
+        "macro_f1": 0.8353344768439108,
+        "auc": 0.9407407407407408,
+        "brier": 0.08569009804099574,
+        "ece": 0.11390893533825869,
+        "sensitivity": 0.8,
+        "specificity": 0.9259259259259259,
+        "positive_class": 1,
+        "num_classes": 2,
+        "n_subjects": 32,
+        "aggregation": "none",
+        "label_conflict": null,
+        "per_group": {},
+        "worst_group_auc": null,
+        "group_gap": null
+      },
+      "shifted_metrics": {
+        "n": 32,
+        "accuracy": 0.90625,
+        "balanced_accuracy": 0.8629629629629629,
+        "macro_f1": 0.8353344768439108,
+        "auc": 0.9407407407407408,
+        "brier": 0.08569009804099574,
+        "ece": 0.11390893533825869,
+        "sensitivity": 0.8,
+        "specificity": 0.9259259259259259,
+        "positive_class": 1,
+        "num_classes": 2,
+        "n_subjects": 32,
+        "aggregation": "none",
+        "label_conflict": null,
+        "per_group": {},
+        "worst_group_auc": null,
+        "group_gap": null
+      },
+      "prediction_flip_rate": 0.0,
+      "style_confidence": {
+        "mean": 0.09376014955341816,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.3870314508676529
+      },
+      "style_entropy": {
+        "mean": 6.392264850774154e-08,
+        "p05": -0.0,
+        "p50": -0.0,
+        "p95": 2.1072746574897555e-36
+      },
+      "style_delta": {
+        "mean": 5.320525757968426,
+        "p05": 3.2713659167289735,
+        "p50": 5.17405366897583,
+        "p95": 8.465416669845581
+      },
+      "condition_gate": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "layer1_relative_rms": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "layer2_relative_rms": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      },
+      "embedding_cosine_distance": {
+        "mean": -2.60770320892334e-08,
+        "p05": -1.1920928955078125e-07,
+        "p50": 0.0,
+        "p95": 5.960464477539063e-08
+      },
+      "js_divergence": {
+        "mean": 0.0,
+        "p05": 0.0,
+        "p50": 0.0,
+        "p95": 0.0
+      }
+    }
+  },
+  "prototype_assignment_nmi": {
+    "split": 0.14981857355080147,
+    "label": 0.16862560070907648,
+    "field_strength": 0.13795923542279043,
+    "manufacturer": 0.11035007678426738,
+    "sequence_family": null
+  }
+}

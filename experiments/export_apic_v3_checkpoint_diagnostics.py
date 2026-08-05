@@ -308,7 +308,10 @@ def _diagnose_loader(
                 slots = torch.full((len(style),), -1, device=device, dtype=torch.long)
             if variant == "apic_v3_2_x":
                 condition, valid_mask = apic.prepare_style_condition(
-                    image, clean_feats["layer1"], clean_feats["layer2"]
+                    image,
+                    clean_feats["layer1"],
+                    clean_feats["layer2"],
+                    sample_ids=list(batch.get("subject_id") or []),
                 )
                 state = apic._state
                 target_style = apic.style_prototypes[state["target"]]
@@ -479,8 +482,26 @@ def main(argv=None) -> None:
         # The frozen teacher is created at the phase boundary during training.
         # Recreate its module structure before loading checkpoint teacher keys.
         model.apis.freeze_teacher(model.backbone)
+    if checkpoint.get("acquisition_encoder_extra"):
+        model.acquisition_encoder.load_state_dict_extra(
+            checkpoint["acquisition_encoder_extra"]
+        )
+        model.acquisition_encoder.to(resolved_device)
+    if checkpoint.get("prototype_bank") is not None:
+        model.prototype_bank.load_state_dict(checkpoint["prototype_bank"])
+    if checkpoint.get("cdt") is not None:
+        model.cdt.load_state_dict(checkpoint["cdt"])
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
+    if args.variant == "apic_v3_2_x":
+        # `_finalized` is a Python flag, not a buffer; restore it from the
+        # checkpointed style bank so diagnostics do not rebuild prototypes.
+        model.apis._finalized = bool(int(model.apis.style_valid.sum().item()) >= 2)
+        if not model.apis._finalized:
+            raise SystemExit(
+                "APIC v3_2 checkpoint style bank is not finalized "
+                f"(valid_slots={int(model.apis.style_valid.sum().item())})"
+            )
     alpha = float(
         args.alpha
         if args.alpha is not None
