@@ -128,6 +128,10 @@ VARIANT_STAGES = {
     "mixstyle_xd": "apic_v3_screening",
     "apic_v3_xd": "apic_v3_screening",
     "apic_v3_2_x": "apic_v3_2_screening",
+    # IE-CAPM paired matrix (plan 32): B0 / B1 / P1. B2 is force_capm eval of P1.
+    "ie_capm_img": "ie_capm",
+    "ie_capm_force": "ie_capm",
+    "ie_capm": "ie_capm",
 }
 
 # Display names: ce_only with class_weighted_ce is weighted CE, not plain CE.
@@ -161,6 +165,9 @@ VARIANT_DISPLAY = {
     "mixstyle_xd": "mixstyle_xd",
     "apic_v3_xd": "apic_v3_xd",
     "apic_v3_2_x": "apic_v3_2_x",
+    "ie_capm_img": "ie_capm_image_only",
+    "ie_capm_force": "capm_force_control",
+    "ie_capm": "ie_capm",
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
@@ -174,6 +181,7 @@ DUAL_SHIFT_VARIANTS = frozenset(
         "mixstyle", "film_scan", "apis_scan",
     }
 ) | APIC_V3_SCREENING_VARIANTS | frozenset(APIC_V3_2_PRIMARY_VARIANTS)
+IE_CAPM_VARIANTS = frozenset({"ie_capm_img", "ie_capm_force", "ie_capm"})
 JOURNAL_SPATIAL_VARIANTS = frozenset({"spatial", "spatial_groupdro"})
 JOURNAL_BACKBONE_VARIANTS = frozenset(
     {"ce_only", "groupdro", "spatial", "spatial_groupdro"}
@@ -657,13 +665,47 @@ def _make_model(config, num_classes, variant):
             backdoor_kwargs=backdoor_kwargs,
             input_shape=input_shape,
         )
+    if variant in IE_CAPM_VARIANTS:
+        from Model.backbone.evidence_calibrated_capm import (
+            journal_demo_var_specs,
+            resnet18_ie_capm,
+        )
+
+        ie_cfg = config.get("ie_capm") or {}
+        var_specs = list(ie_cfg.get("var_specs") or journal_demo_var_specs())
+        model = resnet18_ie_capm(
+            txt_dim=len(var_specs),
+            num_classes=num_classes,
+            var_specs=var_specs,
+            spatial_shape=tuple(
+                int(v) for v in ie_cfg.get("spatial_shape", (4, 4, 4))
+            ),
+            evidence_hidden=int(ie_cfg.get("evidence_hidden", 16)),
+            gate_init=float(ie_cfg.get("gate_init", 0.95)),
+        )
+        model.ie_capm_force = bool(variant == "ie_capm_force")
+        model.ie_capm_image_only = bool(variant == "ie_capm_img")
+        return model
 
     return _make_journal_backbone(config, num_classes)
+
+
+def _ie_capm_table(batch, variant):
+    """Return the table tensor for an IE-CAPM variant (None for image-only)."""
+    if variant == "ie_capm_img":
+        return None
+    return batch["covariates"]
 
 
 def _logits(model, batch, spatial, variant=None):
     image = batch["image"]
     covariates = batch["covariates"]
+    if variant in IE_CAPM_VARIANTS:
+        return model(
+            image,
+            _ie_capm_table(batch, variant),
+            force_capm=bool(getattr(model, "ie_capm_force", False)),
+        )
     if variant in DICTIONARY_VARIANTS:
         return model(image, covariates)
     if variant in METADATA_VARIANTS:
@@ -806,6 +848,48 @@ def _run_epoch(
                     + smooth_w
                     * regularizers.get("backdoor_smoothness", train_loss.new_zeros(()))
                 )
+            if variant in IE_CAPM_VARIANTS and training and variant == "ie_capm":
+                # Pre-registered IE-CAPM regularizers (plan 32); not applied to
+                # image-only or force_capm CAPM-control rows.
+                loss_cfg = config.get("loss", {})
+                ie_cfg = config.get("ie_capm") or {}
+                weights = {
+                    "gate_anchor": float(
+                        ie_cfg.get(
+                            "lambda_gate_anchor",
+                            loss_cfg.get("lambda_gate_anchor", 0.01),
+                        )
+                    ),
+                    "gate_floor": float(
+                        ie_cfg.get(
+                            "lambda_gate_floor",
+                            loss_cfg.get("lambda_gate_floor", 0.01),
+                        )
+                    ),
+                    "modulation_preservation": float(
+                        ie_cfg.get(
+                            "lambda_modulation_preservation",
+                            loss_cfg.get("lambda_modulation_preservation", 0.01),
+                        )
+                    ),
+                    "basis_tv": float(
+                        ie_cfg.get(
+                            "lambda_basis_tv",
+                            loss_cfg.get("lambda_basis_tv", 0.001),
+                        )
+                    ),
+                    "basis_orth": float(
+                        ie_cfg.get(
+                            "lambda_basis_orth",
+                            loss_cfg.get("lambda_basis_orth", 0.001),
+                        )
+                    ),
+                }
+                regularizers = model.regularization_losses()
+                for name, weight in weights.items():
+                    if weight == 0.0:
+                        continue
+                    train_loss = train_loss + weight * regularizers[name]
             if training:
                 optimizer.zero_grad(set_to_none=True)
                 train_loss.backward()
@@ -924,6 +1008,63 @@ def _patch_gamma_summary(model):
     return summary
 
 
+def _ie_capm_gate_summary(model, loader, device, *, force_capm=False, max_batches=32):
+    """Aggregate stage-level gate statistics without dumping raw patient maps."""
+    if not hasattr(model, "calibrators"):
+        return {"available": False}
+    model.eval()
+    stage_stats = {
+        name: {
+            "gate_sum": 0.0,
+            "gate_sq_sum": 0.0,
+            "count": 0,
+            "raw_abs_sum": 0.0,
+            "effective_abs_sum": 0.0,
+        }
+        for name in model.calibrators
+    }
+    n_batches = 0
+    with torch.no_grad():
+        for raw_batch in loader:
+            if n_batches >= max_batches:
+                break
+            image = raw_batch["image"].to(device)
+            table = raw_batch["covariates"].to(device)
+            _, audits = model(
+                image, table, force_capm=force_capm, return_audit=True
+            )
+            for stage, audit in audits.items():
+                gates = audit["gates"].detach().float()
+                stage_stats[stage]["gate_sum"] += float(gates.mean().item())
+                stage_stats[stage]["gate_sq_sum"] += float(gates.square().mean().item())
+                stage_stats[stage]["count"] += 1
+                stage_stats[stage]["raw_abs_sum"] += float(
+                    audit["raw_fields"].detach().float().abs().mean().item()
+                )
+                stage_stats[stage]["effective_abs_sum"] += float(
+                    audit["effective_fields"].detach().float().abs().mean().item()
+                )
+            n_batches += 1
+    per_stage = {}
+    for stage, stats in stage_stats.items():
+        n = max(int(stats["count"]), 1)
+        mean = stats["gate_sum"] / n
+        second = stats["gate_sq_sum"] / n
+        per_stage[stage] = {
+            "gate_mean": mean,
+            "gate_std": float(max(second - mean * mean, 0.0) ** 0.5),
+            "raw_field_abs_mean": stats["raw_abs_sum"] / n,
+            "effective_field_abs_mean": stats["effective_abs_sum"] / n,
+            "n_batches": int(stats["count"]),
+        }
+    return {
+        "available": n_batches > 0,
+        "force_capm": bool(force_capm),
+        "n_batches": n_batches,
+        "per_stage": per_stage,
+    }
+
+
 def _selection_key(result, config, *, variant: str | None = None, selection_history=None):
     """Select checkpoints on subject-aggregated validation metrics.
 
@@ -974,6 +1115,20 @@ def _selection_key(result, config, *, variant: str | None = None, selection_hist
             "current": balanced_accuracy,
         }
         return (1 if len(window) >= 3 and np.isfinite(ema) else 0, ema)
+
+    # IE-CAPM paired matrix (plan 32): shared subject-BA selector for all rows.
+    if variant in IE_CAPM_VARIANTS or config.get("ie_capm") is not None:
+        result["performance_selector"] = {
+            "metric": "subject_balanced_accuracy",
+            "window": 1,
+            "ema": balanced_accuracy,
+            "current": balanced_accuracy,
+        }
+        return (
+            (1, balanced_accuracy)
+            if np.isfinite(balanced_accuracy)
+            else (0, -float(result["loss"]))
+        )
 
     ds = config.get("dual_shift") or {}
     guard = ds.get("collapse_guard") or {}
@@ -1081,6 +1236,7 @@ def _train_variant(
     dictionary = variant in DICTIONARY_VARIANTS
     dual_shift = variant in DUAL_SHIFT_VARIANTS
     metadata = variant in METADATA_VARIANTS
+    ie_capm = variant in IE_CAPM_VARIANTS
     model = _make_model(config, num_classes, variant).to(device)
     if dictionary:
         from Model.dictionary.journal_dual_dict import resolve_dictionary_preset
@@ -1123,7 +1279,7 @@ def _train_variant(
                 "weight_decay", config["training"]["weight_decay"]
             )
         )
-    elif spatial or external or patch_gamma:
+    elif spatial or external or patch_gamma or ie_capm:
         parameters = model.parameters()
         lr = float(config["training"]["learning_rate"])
         weight_decay = float(config["training"]["weight_decay"])
@@ -1446,6 +1602,68 @@ def _train_variant(
             "total_assignments": float(counts.sum().item()),
             "inference_path": "clean",
         }
+    ie_capm_audit = None
+    if ie_capm and variant != "ie_capm_img":
+        ie_capm_audit = {
+            "table_columns": ["age", "sex", "education"],
+            "force_capm_training": bool(getattr(model, "ie_capm_force", False)),
+            "gate_summary_source_val": _ie_capm_gate_summary(
+                model,
+                val_loader,
+                device,
+                force_capm=bool(getattr(model, "ie_capm_force", False)),
+            ),
+        }
+        if variant == "ie_capm":
+            # Plan 32 row B2: same P1 parameters with gates forced to one.
+            previous_force = bool(model.ie_capm_force)
+            model.ie_capm_force = True
+            b2_dir = Path(output_dir) / "ie_capm_b2_force_eval"
+            b2_dir.mkdir(parents=True, exist_ok=True)
+            b2_reports = {
+                "variant": "ie_capm_b2_force_eval",
+                "variant_display_name": "ie_capm_force_capm_eval",
+                "parent_variant": "ie_capm",
+                "force_capm": True,
+                "best_checkpoint_epoch": int(checkpoint["epoch"]),
+                "initialization_seed": int(config["seed"]),
+                "config_hash": _config_fingerprint(config),
+            }
+            for split, loader in (
+                ("source_val", val_loader),
+                ("source_test", test_loader),
+                ("target", target_loader),
+            ):
+                result = _run_epoch(
+                    model,
+                    loader,
+                    device,
+                    dro=None,
+                    config=config,
+                    spatial=False,
+                    variant="ie_capm_force",
+                )
+                probabilities = _save_predictions(
+                    b2_dir / f"{split}_predictions.csv", result
+                )
+                b2_reports[split] = {
+                    "loss": result["loss"],
+                    "metrics": compute_journal_metrics(
+                        probabilities,
+                        result["labels"],
+                        result["environments"],
+                        input_type="probabilities",
+                        subject_ids=result["subjects"],
+                        aggregate=aggregate,
+                        folders=result.get("folders"),
+                    ),
+                }
+            b2_reports["gate_summary_source_val"] = _ie_capm_gate_summary(
+                model, val_loader, device, force_capm=True
+            )
+            save_json_summary(b2_dir / "journal_metrics.json", b2_reports)
+            ie_capm_audit["b2_force_eval_dir"] = str(b2_dir)
+            model.ie_capm_force = previous_force
     reports.update(
         {
             "variant": variant,
@@ -1476,9 +1694,13 @@ def _train_variant(
             ),
             "config_hash": _config_fingerprint(config),
             "method_family": (
-                "APIC_v3_2_screening"
-                if apic_v3_2_variant_spec(variant) is not None
-                else ("APIC_v3_screening" if screening_spec is not None else None)
+                "IE_CAPM"
+                if ie_capm
+                else (
+                    "APIC_v3_2_screening"
+                    if apic_v3_2_variant_spec(variant) is not None
+                    else ("APIC_v3_screening" if screening_spec is not None else None)
+                )
             ),
             "code_variant": (
                 screening_spec["base_variant"]
@@ -1486,9 +1708,23 @@ def _train_variant(
                 else variant
             ),
             "input_modalities": (
-                screening_spec["modalities"] if screening_spec is not None else None
+                ["image"]
+                if variant == "ie_capm_img"
+                else (
+                    ["image", "demographics"]
+                    if ie_capm
+                    else (screening_spec["modalities"] if screening_spec is not None else None)
+                )
             ),
-            "use_demographics": bool(getattr(model, "use_demographics", False)),
+            "use_demographics": bool(
+                False
+                if variant == "ie_capm_img"
+                else (
+                    True
+                    if ie_capm
+                    else getattr(model, "use_demographics", False)
+                )
+            ),
             "uses_acquisition_metadata": bool(
                 getattr(model, "use_scan_film", False)
                 or (
@@ -1498,10 +1734,13 @@ def _train_variant(
                 )
             ),
             "apic_v3_audit": apic_v3_audit,
+            "ie_capm_audit": ie_capm_audit,
         }
     )
     save_json_summary(variant_dir / "journal_metrics.json", reports)
     save_json_summary(variant_dir / "gamma_summary.json", reports["gamma"] or {})
+    if ie_capm_audit is not None:
+        save_json_summary(variant_dir / "ie_capm_gate_summary.json", ie_capm_audit)
     return reports
 
 

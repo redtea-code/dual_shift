@@ -1,0 +1,112 @@
+# IE-CAPM paired matrix (plan 32) — NC/CN vs AD, demographics-only table.
+# Rows: B0=ie_capm_img, B1=ie_capm_force, P1=ie_capm; B2=force_capm eval of P1.
+# Table columns retained: [age, sex, education] (journal z-scored cov3).
+# Complete clinical table regime is deferred until a joint ADNI/NACC clinical
+# schema (MMSE/CDRSB/…) is wired; do not invent missing APOE/ADAS/FAQ fields.
+#
+# No outcome claim is authorized by this config (plan status: planned).
+
+preprocessing_version: skullstrip+n4+mni+crop+normalize
+seed: 42
+split_seed: 42
+output_root: outputs/journal/ie_capm_cn_ad_demos
+
+claim:
+  exclude_subjects_json: data/claim/paired_holdout_subjects.json
+  exclude_subjects_key: subjects_all_paired
+  protocol: ie_capm_cn_ad_demos
+  protocol_revision: 1
+  primary_metric: balanced_accuracy
+  primary_baselines: [ie_capm_force]
+  split_seed: 42
+  exclude_before_split: true
+  carve_e3_from_target: true
+
+task: {mode: binary, label_mapping: {1: 0, 3: 1}}
+
+metadata_match: {max_days: 90, require_diagnosis_match: true, on_diagnosis_mismatch: exclude}
+scan_manifest:
+  enabled: true
+  root: F:/ADNI/scan_manifests
+  files: {ADNI: ADNI_scan_manifest.csv, NACC: NACC_scan_manifest.csv}
+cohorts:
+  ADNI:
+    image_root: F:/ADNI/ADNI_dataset
+    metadata_csv: D:/ADNI/merge.csv
+    image_filename: MRI_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping: {1: male, 2: female, M: male, F: female}
+    columns:
+      id: [PTID, RID, subject_id]
+      date: [EXAMDATE, VISDATE, date]
+      sex: [PTGENDER, SEX, sex, gender]
+      age: [AGE, age, AGE_YEARS]
+      education: [PTEDUCAT, EDUCATION, education, EDU, EDUC]
+      diagnosis: [DIAGNOSIS, DX, label]
+  NACC:
+    image_root: F:/ADNI/NACC_dataset
+    metadata_csv: F:/NACC/MRI_mulclass3.csv
+    image_filename: MRI_N4_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping: {1: male, 2: female, M: male, F: female}
+    columns:
+      id: [NACCID, PTID, subject_id]
+      date: [date, EXAMDATE, VISDATE]
+      sex: [SEX, sex, PTGENDER, gender]
+      age: [AGE, age, AGE_YEARS]
+      education: [EDUCATION, education, EDUC, EDU, EDUCATION_YEARS]
+      diagnosis: [label, DIAGNOSIS, DX]
+
+training:
+  epochs: 50
+  batch_size: 2
+  eval_batch_size: 2
+  num_workers: 0
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  class_weighted_ce: true
+
+model:
+  name: resnet18_ie_capm
+  use_demographics: true
+
+environments:
+  mode: age_sex
+  n_age_bins: 3
+  n_education_bins: 3
+  min_group_size: 8
+  min_per_class: 2
+  scale_continuous: true
+
+loss:
+  lambda_gate_anchor: 0.01
+  lambda_gate_floor: 0.01
+  lambda_modulation_preservation: 0.01
+  lambda_basis_tv: 0.001
+  lambda_basis_orth: 0.001
+
+ie_capm:
+  table_regime: demographics_only
+  retained_columns: [age, sex, education]
+  spatial_shape: [4, 4, 4]
+  evidence_hidden: 16
+  gate_init: 0.95
+  lambda_gate_anchor: 0.01
+  lambda_gate_floor: 0.01
+  lambda_modulation_preservation: 0.01
+  lambda_basis_tv: 0.001
+  lambda_basis_orth: 0.001
+
+evaluation:
+  aggregate: subject_mean
+  cluster_by_subject: true
+  bootstrap_samples: 1000
+
+variants: [ie_capm_img, ie_capm_force, ie_capm]
+
+study:
+  seeds: [42, 43, 44, 45, 46]
+  directions: [ADNI_to_NACC, NACC_to_ADNI]

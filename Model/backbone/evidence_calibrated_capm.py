@@ -261,6 +261,29 @@ def default_adni_var_specs() -> list[dict[str, Any]]:
     ]
 
 
+def journal_demo_var_specs() -> list[dict[str, Any]]:
+    """Demographics-only specs matched to journal z-scored cov3 tensors."""
+    return [
+        {
+            "name": "age",
+            "type": "continuous",
+            "n_centers": 8,
+            "min_val": -5.0,
+            "max_val": 5.0,
+            "n_bases": 4,
+        },
+        {"name": "sex", "type": "categorical", "n_cats": 2, "n_bases": 2},
+        {
+            "name": "education",
+            "type": "continuous",
+            "n_centers": 8,
+            "min_val": -5.0,
+            "max_val": 5.0,
+            "n_bases": 4,
+        },
+    ]
+
+
 class ResNetEvidenceCalibratedCAPMBackbone(nn.Module):
     """3D ResNet whose CAPM modulations are calibrated by MRI evidence.
 

@@ -87,6 +87,8 @@ _try_export(
         "EvidenceCalibratedCAPM",
         "ResNetEvidenceCalibratedCAPMBackbone",
         "resnet18_ie_capm",
+        "default_adni_var_specs",
+        "journal_demo_var_specs",
     ),
 )
 _try_export(
