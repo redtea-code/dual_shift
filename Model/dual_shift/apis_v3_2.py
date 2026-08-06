@@ -292,9 +292,11 @@ class FixedStyleBankAPICV32(nn.Module):
             mask = cal_assignment == slot
             if bool(mask.any()) and bool(self.style_valid[slot]):
                 radius = (calibration_projected[mask] - prototypes[slot]).square().sum(dim=1).sqrt().quantile(0.95)
-                self.prototype_radii[slot] = radius.clamp_min(1e-3)
+                self.prototype_radii[slot] = float(radius.clamp_min(1e-3).item())
+        # Keep pair-distance math on the CPU observation tensors; buffers may be CUDA.
         pair_distance = (prototypes[:, None] - prototypes[None]).square().sum(dim=2).sqrt()
-        pair_scale = (self.prototype_radii[:, None] + self.prototype_radii[None]) / 2.0
+        radii = self.prototype_radii.detach().to(pair_distance.device)
+        pair_scale = (radii[:, None] + radii[None]) / 2.0
         self.prototype_pair_relative_distance.copy_(
             (pair_distance / pair_scale.clamp_min(1e-6)).to(
                 self.prototype_pair_relative_distance.device
@@ -306,7 +308,9 @@ class FixedStyleBankAPICV32(nn.Module):
         )
         if strict and not initialized:
             raise RuntimeError(
-                "APIC v3_2 style bank lacks per-slot fit or calibration support"
+                "APIC v3_2 style bank lacks per-slot fit or calibration support "
+                f"(fit_valid={self.style_valid.tolist()} fit_counts={self.style_counts.tolist()} "
+                f"cal_counts={cal_counts.tolist()} min_cluster_count={self.min_cluster_count})"
             )
         self._finalized = initialized
         self._observed_fit.clear()
