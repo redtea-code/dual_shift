@@ -1,0 +1,411 @@
+{
+  "date": "2026-08-06",
+  "verdict": "NO-GO",
+  "formal_run_allowed": false,
+  "e3_authorized": false,
+  "git_head": "cee93138cc95b12690d6a7db32bd079d73f142bc",
+  "branch": "fix/apic-v3-2-m0",
+  "local_fixes": [
+    "apis_v3_2.py: relative delta band (committed cee9313) + calibration floor + radii device align",
+    "train_journal.py: style_bank full-coverage DataLoader; always save last_checkpoint.pt; conditional teacher reload + _finalized restore",
+    "export_apic_v3_checkpoint_diagnostics.py: conditional freeze_teacher / teacher=None",
+    "tests/test_apis_v3_2.py: calibration floor assignment unit test"
+  ],
+  "units": {
+    "adni_to_nacc": {
+      "role": "success",
+      "checkpoint": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/adni_to_nacc/apic_v3_2_x/best_checkpoint.pt",
+      "checkpoint_epoch": 47,
+      "layer2_dir": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/seed42_adni_to_nacc",
+      "n_samples": 1322,
+      "memory_valid_slots": 4,
+      "memory_counts": [
+        28.0,
+        8.0,
+        26.0,
+        33.0
+      ],
+      "prototype_radii": [
+        22.510141372680664,
+        21.44771385192871,
+        15.446568489074707,
+        13.1082181930542
+      ],
+      "published_target_ba": 0.626461038961039,
+      "reference_match_1e5": true,
+      "m0": {
+        "slot_support": true,
+        "band_alternatives": true,
+        "supported_and_nonzero_rms": true,
+        "clean_fallback": true,
+        "prediction_match_1e5": true
+      },
+      "splits": {
+        "source_train": {
+          "supported_frac": 0.7887,
+          "nonzero_rms_frac": 0.7887,
+          "band_hit_frac": 0.7887,
+          "band_hit_among_supported": 1.0,
+          "flip": 0.0,
+          "js_mean": 3.005e-05,
+          "clean_ba": 0.8822,
+          "shift_ba": 0.8822
+        },
+        "source_val": {
+          "supported_frac": 0.7339,
+          "nonzero_rms_frac": 0.7339,
+          "band_hit_frac": 0.7339,
+          "band_hit_among_supported": 1.0,
+          "flip": 0.0092,
+          "js_mean": 2.34e-05,
+          "clean_ba": 0.5904,
+          "shift_ba": 0.5827
+        },
+        "source_test": {
+          "supported_frac": 0.6842,
+          "nonzero_rms_frac": 0.6842,
+          "band_hit_frac": 0.6842,
+          "band_hit_among_supported": 1.0,
+          "flip": 0.0,
+          "js_mean": 5.254e-05,
+          "clean_ba": 0.4957,
+          "shift_ba": 0.4957
+        },
+        "target": {
+          "supported_frac": 0.4067,
+          "nonzero_rms_frac": 0.4067,
+          "band_hit_frac": 0.4067,
+          "band_hit_among_supported": 1.0,
+          "flip": 0.0046,
+          "js_mean": 1.554e-05,
+          "clean_ba": 0.6175,
+          "shift_ba": 0.6178
+        }
+      },
+      "nmi": {
+        "split": 0.0538,
+        "label": 0.0221,
+        "field_strength": 0.0622,
+        "manufacturer": 0.0399,
+        "sequence_family": 0.0011
+      }
+    },
+    "nacc_to_adni": {
+      "role": "failure_or_selector_collapse",
+      "checkpoint": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/n2a_postbank_snapshots/last_checkpoint_epoch7.pt",
+      "checkpoint_epoch": 7,
+      "note": "Post-bank last_checkpoint snapshot during retrain; published clean-best epoch3 archived under published_clean_best_2026-08-06",
+      "layer2_dir": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/seed42_nacc_to_adni_epoch7",
+      "n_samples": 1322,
+      "memory_valid_slots": 4,
+      "memory_counts": [
+        80.0,
+        56.0,
+        71.0,
+        47.0
+      ],
+      "prototype_radii": [
+        17.76507568359375,
+        47.935726165771484,
+        17.729541778564453,
+        19.228710174560547
+      ],
+      "historical_published_target_ba_clean_best": 0.7036437246963563,
+      "reference_match_1e5": null,
+      "collapse_note": "All supported predictions class 0; BA=0.5; JS=0 despite nonzero relative RMS",
+      "m0": {
+        "slot_support": true,
+        "band_alternatives": true,
+        "supported_and_nonzero_rms": true,
+        "clean_fallback": true,
+        "prediction_match_1e5": null
+      },
+      "splits": {
+        "source_train": {
+          "supported_frac": 0.9306,
+          "nonzero_rms_frac": 0.9306,
+          "band_hit_frac": 0.9306,
+          "band_hit_among_supported": 1.0,
+          "flip": 0.0,
+          "js_mean": 0.0,
+          "clean_ba": 0.5,
+          "shift_ba": 0.5
+        },
+        "source_val": {
+          "supported_frac": 0.9173,
+          "nonzero_rms_frac": 0.9173,
+          "band_hit_frac": 0.9173,
+          "band_hit_among_supported": 1.0,
+          "flip": 0.0,
+          "js_mean": 0.0,
+          "clean_ba": 0.5,
+          "shift_ba": 0.5
+        },
+        "source_test": {
+          "supported_frac": 0.9091,
+          "nonzero_rms_frac": 0.9091,
+          "band_hit_frac": 0.9091,
+          "band_hit_among_supported": 1.0,
+          "flip": 0.0,
+          "js_mean": 0.0,
+          "clean_ba": 0.5,
+          "shift_ba": 0.5
+        },
+        "target": {
+          "supported_frac": 0.4865,
+          "nonzero_rms_frac": 0.4865,
+          "band_hit_frac": 0.4865,
+          "band_hit_among_supported": 1.0,
+          "flip": 0.0,
+          "js_mean": 0.0,
+          "clean_ba": 0.5,
+          "shift_ba": 0.5
+        }
+      },
+      "nmi": {
+        "split": 0.0872,
+        "label": 0.0282,
+        "field_strength": 0.1027,
+        "manufacturer": 0.0397,
+        "sequence_family": 0.0012
+      },
+      "historical_published_best_epoch": 3
+    }
+  },
+  "n2a_retrain": {
+    "status": "completed_epoch50",
+    "final_epoch": 50,
+    "log": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/logs/seed42_nacc_to_adni_retrain.txt",
+    "output_dir": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/nacc_to_adni",
+    "last_checkpoint": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/nacc_to_adni/apic_v3_2_x/last_checkpoint.pt",
+    "best_checkpoint_note": "best remains epoch4 clean-warmup without bank; layer-2 used last epoch50",
+    "watcher": "failed SyntaxError on f-string; layer-2 run manually",
+    "completed_at": "2026-08-06T12:12:00Z",
+    "published_best_epoch": 4,
+    "published_target_ba": 0.6366107576633893,
+    "published_audit_valid_slots": 0,
+    "note": "Selector best remains clean-warmup (epoch4, no bank). Mechanism evidence uses last_checkpoint epoch7/50 snapshots."
+  },
+  "nacc_to_adni_post_retrain": {
+    "role": "failure_mode_persists",
+    "checkpoint": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/n2a_postbank_snapshots/final_last_checkpoint_epoch50.pt",
+    "checkpoint_epoch": 50,
+    "layer2_dir": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/seed42_nacc_to_adni",
+    "layer2_smoke_dir": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/seed42_nacc_to_adni_smoke",
+    "n_samples": 1322,
+    "memory_valid_slots": 4,
+    "memory_counts": [
+      80.0,
+      56.0,
+      71.0,
+      47.0
+    ],
+    "collapse_note": "BA still ~0.48-0.52 on all splits; predictions mostly class-1 (high sens / near-zero spec). JS now tiny nonzero (~5e-5..2e-4) vs epoch7 JS=0; flip tiny. Failure-mode BA collapse persists.",
+    "delta_vs_epoch7": {
+      "js_was_zero": true,
+      "js_now_tiny_nonzero": true,
+      "ba_still_collapsed": true,
+      "pred_mode_shift": "class0_all_to_mostly_class1"
+    },
+    "reference_match_1e5": null,
+    "reference_match_note": "export looked beside snapshot; job-dir prediction CSVs exist under apic_v3_2_x/",
+    "splits": {
+      "source_train": {
+        "supported_frac": 0.9306,
+        "nonzero_rms_frac": 0.9306,
+        "flip": 0.018,
+        "js_mean": 0.000162,
+        "clean_ba": 0.5155,
+        "shift_ba": 0.5148,
+        "band_hit_frac": 0.9306,
+        "band_hit_among_supported": 1.0
+      },
+      "source_val": {
+        "supported_frac": 0.9173,
+        "nonzero_rms_frac": 0.9173,
+        "flip": 0.0226,
+        "js_mean": 0.000194,
+        "clean_ba": 0.4782,
+        "shift_ba": 0.5002,
+        "band_hit_frac": 0.9173,
+        "band_hit_among_supported": 1.0
+      },
+      "source_test": {
+        "supported_frac": 0.9091,
+        "nonzero_rms_frac": 0.9091,
+        "flip": 0.0303,
+        "js_mean": 0.000185,
+        "clean_ba": 0.4789,
+        "shift_ba": 0.4958,
+        "band_hit_frac": 0.9091,
+        "band_hit_among_supported": 1.0
+      },
+      "target": {
+        "supported_frac": 0.4865,
+        "nonzero_rms_frac": 0.4865,
+        "flip": 0.0045,
+        "js_mean": 5.015e-05,
+        "clean_ba": 0.5052,
+        "shift_ba": 0.5014,
+        "band_hit_frac": 0.4865,
+        "band_hit_among_supported": 1.0
+      }
+    },
+    "nmi": {
+      "split": 0.08723071181793232,
+      "label": 0.02815731153684788,
+      "field_strength": 0.10270860276129873,
+      "manufacturer": 0.039698031452845506,
+      "sequence_family": 0.0012435595727060195
+    }
+  },
+  "unit_tests": {
+    "command": "python -m pytest tests/test_apis_v3_2.py -q",
+    "result": "10 passed",
+    "log": "unit_tests/pytest_apis_v3_2.txt"
+  },
+  "scope": {
+    "task": "MCI_vs_AD",
+    "directions": [
+      "ADNI_to_NACC",
+      "NACC_to_ADNI"
+    ],
+    "seeds": [
+      42
+    ],
+    "cn_dropped": true
+  },
+  "layer1_history_note": "layer1/apic_v3_history_summary.json was generated against the pre-retrain / published_clean_best N2A tree (best epoch3, target BA 0.7036, memory_valid_slots 0). Post-retrain published metrics are in metrics/n2a_retrain_summary.json (best epoch4, BA 0.6366).",
+  "report_path": "review/analysis/37_apic_v3_2_m0_scale_repair_experiment_report_2026-08-06.md",
+  "acceptance_standard": "review/analysis/36_apic_v3_2_m0_scale_repair_acceptance_2026-08-05.md",
+  "archive_path": "review/records/apic_v3_2/5090/apic_v3_2_m0_acceptance_2026-08-06",
+  "e2b": {
+    "adni_to_nacc": {
+      "best_checkpoint_epoch": 47,
+      "published_target_ba": 0.626461038961039,
+      "apic_v3_audit": {
+        "inference_path": "clean",
+        "memory_size": 4,
+        "style_counts": [
+          28.0,
+          8.0,
+          26.0,
+          33.0
+        ],
+        "style_valid": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "total_assignments": 95.0,
+        "valid_slots": 4
+      },
+      "source": "metrics/a2n_summary.json"
+    },
+    "nacc_to_adni_published_clean_best": {
+      "best_checkpoint_epoch": 3,
+      "published_target_ba": 0.7036437246963563,
+      "apic_v3_audit": {
+        "inference_path": "clean",
+        "memory_size": 4,
+        "style_counts": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "style_valid": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "total_assignments": 0.0,
+        "valid_slots": 0
+      },
+      "note": "Selector clean-warmup best before/without bank; not mechanism claim",
+      "source": "metrics/n2a_published_clean_best_summary.json"
+    },
+    "nacc_to_adni_retrain_published_best": {
+      "best_checkpoint_epoch": 4,
+      "published_target_ba": 0.6366107576633893,
+      "apic_v3_audit": {
+        "inference_path": "clean",
+        "memory_size": 4,
+        "style_counts": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "style_valid": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "total_assignments": 0.0,
+        "valid_slots": 0
+      },
+      "note": "Still clean-warmup selector (valid_slots=0); mechanism uses last_checkpoint",
+      "source": "metrics/n2a_retrain_summary.json"
+    }
+  },
+  "m0_scorecard_vs_doc36": {
+    "1_k4_slot_fit_calibration": {
+      "a2n": "PASS",
+      "n2a_epoch7": "PASS",
+      "n2a_epoch50": "PASS",
+      "evidence": "memory_valid_slots=4 both directions"
+    },
+    "2_in_band_alternatives": {
+      "a2n": "PASS",
+      "n2a_epoch7": "PASS",
+      "n2a_epoch50": "PASS",
+      "evidence": "band_hit_among_supported=1.0 on supported samples"
+    },
+    "3_supported_nonzero_rms": {
+      "a2n": "PASS",
+      "n2a_epoch7": "PASS",
+      "n2a_epoch50": "PASS",
+      "evidence": "supported_frac and nonzero_rms_frac non-zero on all splits"
+    },
+    "4_unsupported_clean_fallback": {
+      "a2n": "PASS",
+      "n2a_epoch7": "PASS",
+      "n2a_epoch50": "PASS"
+    },
+    "5_reload_pred_match_1e5": {
+      "a2n": "PASS",
+      "n2a_epoch7": "N/A",
+      "n2a_epoch50": "N/A",
+      "evidence": "A2N max abs ~1e-7; N2A snapshot export reference paths unavailable"
+    },
+    "6_layer2_success_and_failure": {
+      "status": "PASS_pair_covered_but_failure_persists",
+      "note": "A2N healthy mechanism unit; N2A post-bank BA collapse persists through epoch50"
+    },
+    "overall_verdict": "NO-GO",
+    "formal_run_allowed": false
+  },
+  "self_review": {
+    "checked_against": [
+      "GO_NO_GO.md",
+      "layer2/*/diagnostic_summary.json",
+      "metrics/a2n_summary.json",
+      "metrics/n2a_published_clean_best_summary.json",
+      "metrics/n2a_retrain_summary.json",
+      "unit_tests/pytest_apis_v3_2.txt"
+    ],
+    "consistency_notes": [
+      "A2N published target BA 0.626461 matches units.adni_to_nacc.published_target_ba",
+      "N2A clean-best BA 0.703644 matches historical_published_target_ba_clean_best",
+      "N2A retrain published BA 0.636611 matches n2a_retrain.published_target_ba",
+      "Layer-2 A2N target clean/shift BA 0.6175/0.6178 and flip/JS align with GO_NO_GO",
+      "N2A epoch7 BA=0.5 / flip=0 / JS=0; epoch50 BA~0.48-0.52 with tiny JS/flip",
+      "Verdict NO-GO / formal_run_allowed=false unchanged"
+    ],
+    "ok": true
+  }
+}

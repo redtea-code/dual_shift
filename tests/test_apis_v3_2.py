@@ -127,6 +127,34 @@ def test_v3_2_strict_bank_rejects_missing_calibration():
         module.finalize_style_bank(strict=True)
 
 
+def test_v3_2_calibration_floor_assignment_fills_starved_slots():
+    torch.manual_seed(0)
+    prototypes = torch.tensor(
+        [[0.0, 0.0], [10.0, 0.0], [0.0, 10.0], [10.0, 10.0]], dtype=torch.float32
+    )
+    # All points near prototype 0 — nearest assignment would starve slots 1-3.
+    calibration = torch.tensor(
+        [
+            [0.1, 0.0],
+            [0.2, 0.1],
+            [0.0, 0.2],
+            [0.15, 0.15],
+            [0.05, 0.05],
+            [0.25, 0.0],
+            [0.0, 0.25],
+            [0.3, 0.1],
+        ],
+        dtype=torch.float32,
+    )
+    valid = torch.ones(4, dtype=torch.bool)
+    assignment = FixedStyleBankAPICV32._calibration_assignment_with_floor(
+        calibration, prototypes, valid, min_cluster_count=2
+    )
+    counts = torch.bincount(assignment, minlength=4)
+    assert int(counts.min().item()) >= 2
+    assert int(counts.sum().item()) == 8
+
+
 def test_v3_2_loss_counts_every_sample_once_and_auxiliary_terms_use_full_batch():
     clean_logits = torch.tensor([[2.0, 0.0], [0.0, 2.0]])
     shifted_logits = torch.tensor([[0.0, 2.0], [0.0, 2.0]])

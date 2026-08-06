@@ -286,16 +286,25 @@ class FixedStyleBankAPICV32(nn.Module):
             self.prototype_logstd2[slot].copy_(s2.to(self.prototype_logstd2.device))
         calibration_norm = (calibration - center) / scale
         calibration_projected = (calibration_norm - normalized.mean(dim=0, keepdim=True)) @ components.t()
-        cal_assignment = (calibration_projected[:, None] - prototypes[None]).square().sum(dim=2).argmin(dim=1)
+        # Nearest assignment can starve a slot when calibration is small (e.g. ADNI
+        # MCI ~20 subjects into K=4). When totals allow, enforce a per-slot floor
+        # without moving fit/k-means members — only reassign calibration labels.
+        cal_assignment = self._calibration_assignment_with_floor(
+            calibration_projected,
+            prototypes,
+            self.style_valid,
+            self.min_cluster_count,
+        )
         cal_counts = torch.bincount(cal_assignment, minlength=self.memory_size)
         for slot in range(self.memory_size):
             mask = cal_assignment == slot
             if bool(mask.any()) and bool(self.style_valid[slot]):
                 radius = (calibration_projected[mask] - prototypes[slot]).square().sum(dim=1).sqrt().quantile(0.95)
                 self.prototype_radii[slot] = float(radius.clamp_min(1e-3).item())
-        # Keep pair-distance math on the CPU observation tensors; buffers may be CUDA.
+        # prototypes / radii may live on different devices during bank build
+        # (PCA workspace on CPU, module buffers on CUDA). Align before divide.
         pair_distance = (prototypes[:, None] - prototypes[None]).square().sum(dim=2).sqrt()
-        radii = self.prototype_radii.detach().to(pair_distance.device)
+        radii = self.prototype_radii.detach().to(device=pair_distance.device, dtype=pair_distance.dtype)
         pair_scale = (radii[:, None] + radii[None]) / 2.0
         self.prototype_pair_relative_distance.copy_(
             (pair_distance / pair_scale.clamp_min(1e-6)).to(
@@ -307,10 +316,16 @@ class FixedStyleBankAPICV32(nn.Module):
             and (cal_counts >= self.min_cluster_count).all().item()
         )
         if strict and not initialized:
+            fit_counts = [
+                int(self.style_counts[slot].item()) if bool(self.style_valid[slot]) else 0
+                for slot in range(self.memory_size)
+            ]
             raise RuntimeError(
                 "APIC v3_2 style bank lacks per-slot fit or calibration support "
-                f"(fit_valid={self.style_valid.tolist()} fit_counts={self.style_counts.tolist()} "
-                f"cal_counts={cal_counts.tolist()} min_cluster_count={self.min_cluster_count})"
+                f"(fit_valid={self.style_valid.tolist()} fit_counts={fit_counts} "
+                f"cal_counts={cal_counts.tolist()} "
+                f"n_fit={int(raw.shape[0])} n_cal={int(calibration.shape[0])} "
+                f"min_cluster_count={self.min_cluster_count})"
             )
         self._finalized = initialized
         self._observed_fit.clear()
@@ -335,6 +350,55 @@ class FixedStyleBankAPICV32(nn.Module):
         separation = (prototypes[source] - prototypes[target]).norm(dim=1)
         scale = (radii[source] + radii[target]) / 2.0
         return separation / scale.clamp_min(1e-6)
+
+    @staticmethod
+    def _calibration_assignment_with_floor(
+        calibration_projected: torch.Tensor,
+        prototypes: torch.Tensor,
+        style_valid: torch.Tensor,
+        min_cluster_count: int,
+    ) -> torch.Tensor:
+        """Assign calibration subjects to prototypes with a per-slot floor.
+
+        Fit/k-means membership is left untouched. When there are enough
+        calibration subjects for every valid slot, greedily reserve the nearest
+        remaining subject for each under-filled slot, then assign the rest by
+        nearest prototype. If totals are insufficient, fall back to plain
+        nearest assignment (caller still enforces the strict Gate check).
+        """
+        n_cal = int(calibration_projected.shape[0])
+        n_slots = int(prototypes.shape[0])
+        device = calibration_projected.device
+        valid_slots = [
+            slot for slot in range(n_slots) if bool(style_valid[slot].item())
+        ]
+        if n_cal == 0 or not valid_slots:
+            return torch.zeros(n_cal, dtype=torch.long, device=device)
+        distances = (
+            calibration_projected[:, None] - prototypes[None]
+        ).square().sum(dim=2).sqrt()
+        nearest = distances.argmin(dim=1)
+        required = len(valid_slots) * int(min_cluster_count)
+        if n_cal < required or int(min_cluster_count) <= 0:
+            return nearest
+        assignment = torch.full((n_cal,), -1, dtype=torch.long, device=device)
+        remaining = set(range(n_cal))
+        for slot in valid_slots:
+            ranked = torch.argsort(distances[:, slot]).tolist()
+            taken = 0
+            for index in ranked:
+                if index not in remaining:
+                    continue
+                assignment[index] = int(slot)
+                remaining.remove(index)
+                taken += 1
+                if taken >= int(min_cluster_count):
+                    break
+        for index in list(remaining):
+            slot_distances = distances[index, valid_slots]
+            assignment[index] = int(valid_slots[int(slot_distances.argmin().item())])
+            remaining.remove(index)
+        return assignment
 
     def prepare_style_condition(
         self,

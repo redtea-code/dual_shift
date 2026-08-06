@@ -10,3 +10,6 @@
 - `apic_v3_2_mci_failure_diagnostics_2026-08-05/`：layer-1/2 诊断归档
 
 与 `../apic_v3/`（revision 3）隔离；prototype 结果非正式 Gate 主张。**不进入正式 E3**（见 33 / analysis 35）。
+
+- `apic_v3_2_m0_acceptance_2026-08-06/`：M0 尺度修复验收归档（seed42 双向；**NO-GO**）
+- 实验报告：`review/analysis/37_apic_v3_2_m0_scale_repair_experiment_report_2026-08-06.md`

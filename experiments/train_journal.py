@@ -56,6 +56,7 @@ from Model.dual_shift.metadata_baseline import (
 # film / daft / backdoor need optional Model.causal; import lazily in builders.
 from training.dual_shift_loop import (
     initialize_dual_shift_controllers,
+    phase_schedule,
     run_dual_shift_epoch,
 )
 from training.group_dro import GroupDRO
@@ -1145,14 +1146,31 @@ def _train_variant(
     variant_dir = Path(output_dir) / variant
     variant_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = variant_dir / "best_checkpoint.pt"
+    last_checkpoint_path = variant_dir / "last_checkpoint.pt"
     best_key = None
     history = []
     selection_history = []
+    bank_build_loader = None
     for epoch in range(int(config["training"]["epochs"])):
         if dual_shift:
+            schedule = phase_schedule(epoch, config, variant=variant)
+            epoch_loader = train_loader
+            if schedule.get("phase") == "style_bank_build":
+                if bank_build_loader is None:
+                    # Full-coverage pass: WeightedRandomSampler can omit subjects
+                    # and starve calibration slots on small ADNI cohorts.
+                    bank_build_loader = DataLoader(
+                        train_loader.dataset,
+                        batch_size=int(train_loader.batch_size or 4),
+                        shuffle=False,
+                        drop_last=False,
+                        collate_fn=journal_collate,
+                        num_workers=int(getattr(train_loader, "num_workers", 0) or 0),
+                    )
+                epoch_loader = bank_build_loader
             train_result = run_dual_shift_epoch(
                 model,
-                train_loader,
+                epoch_loader,
                 device,
                 optimizer=optimizer,
                 config=config,
@@ -1246,35 +1264,38 @@ def _train_variant(
             f"valid_frac={train_result.get('valid_intervention_frac')}",
             flush=True,
         )
+        # Always persist last_checkpoint so layer-2 can load post-bank weights
+        # even when the selector keeps a clean-warmup best.
+        payload = {
+            "epoch": epoch + 1,
+            "variant": variant,
+            "stage": VARIANT_STAGES[variant],
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "groupdro_state": None if dro is None else dro.state_dict(),
+            "selection": {
+                "val_score": key[-1] if key[0] else None,
+                "val_loss": val_result["loss"],
+                "seed": int(config["seed"]),
+                "collapse_guard": val_result.get("collapse_guard"),
+                "performance_selector": val_result.get("performance_selector"),
+            },
+        }
+        if dual_shift:
+            payload["acquisition_encoder_extra"] = (
+                model.acquisition_encoder.to_state_dict_extra()
+                if model.acquisition_encoder.is_fitted_
+                else None
+            )
+            payload["prototype_bank"] = model.prototype_bank.state_dict()
+            payload["cdt"] = model.cdt.state_dict()
+        if metadata:
+            payload["acquisition_encoder_extra"] = (
+                model.acquisition_encoder.to_state_dict_extra()
+            )
+        torch.save(payload, last_checkpoint_path)
         if best_key is None or key > best_key:
             best_key = key
-            payload = {
-                "epoch": epoch + 1,
-                "variant": variant,
-                "stage": VARIANT_STAGES[variant],
-                "model_state": model.state_dict(),
-                "optimizer_state": optimizer.state_dict(),
-                "groupdro_state": None if dro is None else dro.state_dict(),
-                "selection": {
-                    "val_score": key[-1] if key[0] else None,
-                    "val_loss": val_result["loss"],
-                    "seed": int(config["seed"]),
-                    "collapse_guard": val_result.get("collapse_guard"),
-                    "performance_selector": val_result.get("performance_selector"),
-                },
-            }
-            if dual_shift:
-                payload["acquisition_encoder_extra"] = (
-                    model.acquisition_encoder.to_state_dict_extra()
-                    if model.acquisition_encoder.is_fitted_
-                    else None
-                )
-                payload["prototype_bank"] = model.prototype_bank.state_dict()
-                payload["cdt"] = model.cdt.state_dict()
-            if metadata:
-                payload["acquisition_encoder_extra"] = (
-                    model.acquisition_encoder.to_state_dict_extra()
-                )
             torch.save(payload, checkpoint_path)
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     if dual_shift or metadata:
@@ -1288,7 +1309,25 @@ def _train_variant(
             model.prototype_bank.load_state_dict(checkpoint["prototype_bank"])
         if checkpoint.get("cdt"):
             model.cdt.load_state_dict(checkpoint["cdt"])
+        # APIC v3_2 teacher is created at the clean→APIC boundary. Best may be
+        # from clean warmup (no teacher keys) or later (with teacher keys).
+        if getattr(model, "apis_variant", None) == "v3_2_balanced_style_memory":
+            teacher_keys = [
+                key
+                for key in checkpoint["model_state"]
+                if key.startswith("apis.teacher.")
+            ]
+            if teacher_keys:
+                model.apis.freeze_teacher(model.backbone)
+            else:
+                model.apis.teacher = None
     model.load_state_dict(checkpoint["model_state"])
+    if (
+        dual_shift
+        and getattr(model, "apis_variant", None) == "v3_2_balanced_style_memory"
+    ):
+        # Python flag is not part of state_dict; restore from bank buffers.
+        model.apis._finalized = bool(int(model.apis.style_valid.sum().item()) >= 2)
     if dro is not None and checkpoint["groupdro_state"] is not None:
         dro.load_state_dict(checkpoint["groupdro_state"])
     if dual_shift:
