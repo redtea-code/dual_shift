@@ -478,10 +478,6 @@ def main(argv=None) -> None:
         set(int(value) for value in config["task"]["label_mapping"].values())
     )
     model = _make_model(config, num_classes, args.variant).to(resolved_device)
-    if args.variant == "apic_v3_2_x":
-        # The frozen teacher is created at the phase boundary during training.
-        # Recreate its module structure before loading checkpoint teacher keys.
-        model.apis.freeze_teacher(model.backbone)
     # Match train_journal checkpoint reload: rebuild acquisition vocab / CDT
     # tensors before loading model_state embedding weights.
     if checkpoint.get("acquisition_encoder_extra"):
@@ -493,6 +489,18 @@ def main(argv=None) -> None:
         model.prototype_bank.load_state_dict(checkpoint["prototype_bank"])
     if checkpoint.get("cdt") is not None:
         model.cdt.load_state_dict(checkpoint["cdt"])
+    if args.variant == "apic_v3_2_x":
+        # Teacher is created at the clean→APIC boundary. Best may be from
+        # clean warmup (no teacher keys) or later (with teacher keys).
+        teacher_keys = [
+            key
+            for key in checkpoint["model_state"]
+            if key.startswith("apis.teacher.")
+        ]
+        if teacher_keys:
+            model.apis.freeze_teacher(model.backbone)
+        else:
+            model.apis.teacher = None
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
     if args.variant == "apic_v3_2_x":

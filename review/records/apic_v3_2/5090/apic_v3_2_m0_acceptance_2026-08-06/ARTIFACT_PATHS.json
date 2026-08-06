@@ -1,0 +1,58 @@
+{
+  "host": "5090",
+  "repo_root": "/zjs/AD_Project/dual_shift_github",
+  "note": "Large .pt checkpoints and full prediction dumps stay on disk; not committed to git. Layer-2 diagnostic_summary.json and sample_diagnostics.csv are archived under layer2/.",
+  "large_artifacts": {
+    "a2n_best_checkpoint": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/adni_to_nacc/apic_v3_2_x/best_checkpoint.pt",
+    "a2n_last_checkpoint": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/adni_to_nacc/apic_v3_2_x/last_checkpoint.pt",
+    "a2n_predictions_dir": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/adni_to_nacc/apic_v3_2_x/",
+    "n2a_retrain_best_checkpoint": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/nacc_to_adni/apic_v3_2_x/best_checkpoint.pt",
+    "n2a_retrain_last_checkpoint": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/nacc_to_adni/apic_v3_2_x/last_checkpoint.pt",
+    "n2a_published_clean_best_dir": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/nacc_to_adni/published_clean_best_2026-08-06/",
+    "n2a_epoch7_snapshot": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/n2a_postbank_snapshots/last_checkpoint_epoch7.pt",
+    "n2a_epoch50_snapshot": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/n2a_postbank_snapshots/final_last_checkpoint_epoch50.pt",
+    "training_logs": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/logs/"
+  },
+  "large_artifact_sizes": {
+    "a2n_best_checkpoint": {
+      "path": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/adni_to_nacc/apic_v3_2_x/best_checkpoint.pt",
+      "bytes": 101935231
+    },
+    "a2n_predictions_dir": {
+      "path": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/adni_to_nacc/apic_v3_2_x/",
+      "n_files": 6,
+      "bytes_top_level": 102096956
+    },
+    "n2a_retrain_best_checkpoint": {
+      "path": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/nacc_to_adni/apic_v3_2_x/best_checkpoint.pt",
+      "bytes": 99863191
+    },
+    "n2a_retrain_last_checkpoint": {
+      "path": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/nacc_to_adni/apic_v3_2_x/last_checkpoint.pt",
+      "bytes": 101935103
+    },
+    "n2a_published_clean_best_dir": {
+      "path": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/nacc_to_adni/published_clean_best_2026-08-06/",
+      "n_files": 2,
+      "bytes_top_level": 89489
+    },
+    "n2a_epoch7_snapshot": {
+      "path": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/n2a_postbank_snapshots/last_checkpoint_epoch7.pt",
+      "bytes": 101935103
+    },
+    "n2a_epoch50_snapshot": {
+      "path": "outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/n2a_postbank_snapshots/final_last_checkpoint_epoch50.pt",
+      "bytes": 101935103
+    },
+    "training_logs": {
+      "path": "outputs/journal/apic_v3_2_m0_mci_ad/r4/seed42/logs/",
+      "n_files": 9,
+      "bytes_top_level": 40025
+    }
+  },
+  "archived_layer2_samples": [
+    "layer2/a2n/sample_diagnostics.csv",
+    "layer2/n2a_epoch7/sample_diagnostics.csv",
+    "layer2/n2a_epoch50/sample_diagnostics.csv"
+  ]
+}
