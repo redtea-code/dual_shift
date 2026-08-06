@@ -82,6 +82,14 @@ _try_export(
     ),
 )
 _try_export(
+    ".evidence_calibrated_capm",
+    (
+        "EvidenceCalibratedCAPM",
+        "ResNetEvidenceCalibratedCAPMBackbone",
+        "resnet18_ie_capm",
+    ),
+)
+_try_export(
     ".vit_film_backbone",
     ("ViTFiLMBackbone", "ViTEncoder3D", "vit_tiny_film", "vit_small_film"),
 )
