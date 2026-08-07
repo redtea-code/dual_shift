@@ -1,0 +1,7 @@
+{
+  "holdout_file": "d:/cyh/apic_v3_2_m0_fix/data/claim/paired_holdout_subjects.json",
+  "holdout_sha256": "f60ac915b6e2a5b40d46a4a6a3a8fad89f620104a059694e626eeaf027e12770",
+  "n_metrics_done": 10,
+  "n_metrics_total": 16,
+  "paired_cells_with_P1_B1": 2
+}

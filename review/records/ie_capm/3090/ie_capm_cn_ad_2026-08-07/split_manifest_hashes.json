@@ -1,0 +1,59 @@
+[
+  {
+    "direction": "ADNI_to_NACC",
+    "seed": 42,
+    "sha256": "856c8d2ec940ea244109ec765b50664c3f9de784440fa37bef3245467cc74605",
+    "keys": [
+      "claim_holdout",
+      "config_hash",
+      "covariate_preprocessor",
+      "dataset_fingerprint",
+      "direction",
+      "e1_target_indices",
+      "e1_target_subjects",
+      "e3_paired_indices_by_cohort",
+      "e3_paired_subjects_by_cohort",
+      "environment",
+      "frozen_split_manifest",
+      "initialization_seed"
+    ]
+  },
+  {
+    "direction": "ADNI_to_NACC",
+    "seed": 43,
+    "sha256": "725f47da1ae464aa0b5e22b5e6df5c7e8796683a5902d3bdcb739bbaa7b43d3f",
+    "keys": [
+      "claim_holdout",
+      "config_hash",
+      "covariate_preprocessor",
+      "dataset_fingerprint",
+      "direction",
+      "e1_target_indices",
+      "e1_target_subjects",
+      "e3_paired_indices_by_cohort",
+      "e3_paired_subjects_by_cohort",
+      "environment",
+      "frozen_split_manifest",
+      "initialization_seed"
+    ]
+  },
+  {
+    "direction": "NACC_to_ADNI",
+    "seed": 42,
+    "sha256": "fdcbf116e6278aeab17406bce8b279f034988bc9571384b6be5c9ade8a8df1e2",
+    "keys": [
+      "claim_holdout",
+      "config_hash",
+      "covariate_preprocessor",
+      "dataset_fingerprint",
+      "direction",
+      "e1_target_indices",
+      "e1_target_subjects",
+      "e3_paired_indices_by_cohort",
+      "e3_paired_subjects_by_cohort",
+      "environment",
+      "frozen_split_manifest",
+      "initialization_seed"
+    ]
+  }
+]
