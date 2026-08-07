@@ -667,12 +667,12 @@ def _make_model(config, num_classes, variant):
         )
     if variant in IE_CAPM_VARIANTS:
         from Model.backbone.evidence_calibrated_capm import (
-            journal_demo_var_specs,
+            protocol_table_var_specs,
             resnet18_ie_capm,
         )
 
         ie_cfg = config.get("ie_capm") or {}
-        var_specs = list(ie_cfg.get("var_specs") or journal_demo_var_specs())
+        var_specs = list(ie_cfg.get("var_specs") or protocol_table_var_specs())
         model = resnet18_ie_capm(
             txt_dim=len(var_specs),
             num_classes=num_classes,
@@ -1604,8 +1604,10 @@ def _train_variant(
         }
     ie_capm_audit = None
     if ie_capm and variant != "ie_capm_img":
+        ie_cfg = config.get("ie_capm") or {}
+        retained = list(ie_cfg.get("retained_columns") or ["age", "sex", "education"])
         ie_capm_audit = {
-            "table_columns": ["age", "sex", "education"],
+            "table_columns": retained,
             "force_capm_training": bool(getattr(model, "ie_capm_force", False)),
             "gate_summary_source_val": _ie_capm_gate_summary(
                 model,

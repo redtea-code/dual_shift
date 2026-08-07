@@ -262,7 +262,7 @@ def default_adni_var_specs() -> list[dict[str, Any]]:
 
 
 def journal_demo_var_specs() -> list[dict[str, Any]]:
-    """Demographics-only specs matched to journal z-scored cov3 tensors."""
+    """Demographics specs for journal z-scored cov3 tensors (legacy helper)."""
     return [
         {
             "name": "age",
@@ -281,6 +281,15 @@ def journal_demo_var_specs() -> list[dict[str, Any]]:
             "max_val": 5.0,
             "n_bases": 4,
         },
+    ]
+
+
+def protocol_table_var_specs() -> list[dict[str, Any]]:
+    """Formal IE-CAPM three-variable contract (raw age/education scale)."""
+    return [
+        {"name": "age", "type": "continuous", "min_val": 55, "max_val": 95, "n_bases": 6},
+        {"name": "sex", "type": "categorical", "n_cats": 2, "n_bases": 2},
+        {"name": "education", "type": "continuous", "min_val": 0, "max_val": 22, "n_bases": 4},
     ]
 
 

@@ -89,6 +89,7 @@ _try_export(
         "resnet18_ie_capm",
         "default_adni_var_specs",
         "journal_demo_var_specs",
+        "protocol_table_var_specs",
     ),
 )
 _try_export(
