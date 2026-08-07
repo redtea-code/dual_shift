@@ -387,9 +387,9 @@ class DualShiftResNet3D(nn.Module):
                     "style_confidence": audit["style_confidence"],
                     "style_entropy": audit["style_entropy"],
                     "style_delta": audit["style_delta"],
-                    "prototype_relative_separation": audit[
+                    "prototype_relative_separation": audit.get(
                         "prototype_relative_separation"
-                    ],
+                    ),
                     "condition_gate": audit["condition_gate"],
                     "apis_style_target_error_per_sample": audit.get(
                         "style_target_error_per_sample"
