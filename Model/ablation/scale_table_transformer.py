@@ -73,13 +73,13 @@ class AblationPreset:
     selected_stage: str
     patch_size: tuple[int, int, int]
     expected_tokens_128: int
-    expected_tokens_160x160x96: int
+    expected_tokens_160x196x160: int
 
 
 ABLATION_PRESETS: dict[str, AblationPreset] = {
-    "layer3_patch2": AblationPreset("layer3", (2, 2, 2), 64, 75),
-    "layer4_pixel": AblationPreset("layer4", (1, 1, 1), 64, 75),
-    "layer5_pixel": AblationPreset("layer5", (1, 1, 1), 8, 18),
+    "layer3_patch2": AblationPreset("layer3", (2, 2, 2), 64, 175),
+    "layer4_pixel": AblationPreset("layer4", (1, 1, 1), 64, 175),
+    "layer5_pixel": AblationPreset("layer5", (1, 1, 1), 8, 36),
 }
 
 
@@ -104,6 +104,17 @@ def _selected_feature_shape(
     for _ in range(stage_downsamples[selected_stage]):
         shape = tuple(_ceil_stride2(size) for size in shape)
     return shape
+
+
+def _right_padded_shape(
+    feature_shape: Sequence[int], patch_size: int | Sequence[int]
+) -> tuple[int, int, int]:
+    """Return the smallest patch-divisible shape using right-side zero padding."""
+    patch = _triple(patch_size)
+    return tuple(
+        size + (step - size % step) % step
+        for size, step in zip((int(value) for value in feature_shape), patch)
+    )
 
 
 class OriginalPatchwiseCAPM(nn.Module):
@@ -166,10 +177,11 @@ class OriginalPatchwiseCAPM(nn.Module):
         *,
         return_audit: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        if tuple(x.shape[2:]) != self.expected_feature_shape:
+        actual_feature_shape = tuple(x.shape[2:])
+        if any(actual > expected for actual, expected in zip(actual_feature_shape, self.expected_feature_shape)):
             raise ValueError(
                 "Original patchwise CAPM was initialized for feature shape "
-                f"{self.expected_feature_shape}, received {tuple(x.shape[2:])}"
+                f"up to {self.expected_feature_shape}, received {actual_feature_shape}"
             )
         if z.ndim != 2 or z.shape[1] != self.table_encoder[0].in_features:
             raise ValueError(
@@ -181,6 +193,12 @@ class OriginalPatchwiseCAPM(nn.Module):
             raise ValueError(
                 f"Image and table batch sizes must match, got {batch_size} and {z.shape[0]}"
             )
+        pad_d = self.expected_feature_shape[0] - depth
+        pad_h = self.expected_feature_shape[1] - height
+        pad_w = self.expected_feature_shape[2] - width
+        if pad_d or pad_h or pad_w:
+            x = F.pad(x, (0, pad_w, 0, pad_h, 0, pad_d))
+        depth, height, width = self.expected_feature_shape
         patch_d, patch_h, patch_w = self.patch_size
         grid_d, grid_h, grid_w = self.patch_grid
         patches = x.unfold(2, patch_d, patch_d).unfold(3, patch_h, patch_h).unfold(4, patch_w, patch_w)
@@ -199,11 +217,14 @@ class OriginalPatchwiseCAPM(nn.Module):
         )
         output = adjusted.permute(0, 4, 1, 5, 2, 6, 3, 7).contiguous()
         output = output.view(batch_size, channels, depth, height, width)
+        if pad_d or pad_h or pad_w:
+            output = output[:, :, : depth - pad_d, : height - pad_h, : width - pad_w]
         audit = {
             "gamma": gamma,
             "effective_scale": 2.0 - gamma,
             "patch_grid": torch.tensor(self.patch_grid, device=x.device),
             "patch_count": torch.tensor(self.patch_count, device=x.device),
+            "right_padding": torch.tensor((pad_d, pad_h, pad_w), device=x.device),
         }
         self.last_audit = audit
         if return_audit:
@@ -337,11 +358,13 @@ class TransformerCalibratedCAPM(EvidenceCalibratedCAPM):
                 f"Feature size {tuple(spatial_size)} is smaller than patch size "
                 f"{self.patch_size}"
             )
-        if any(size % patch != 0 for size, patch in zip(spatial_size, self.patch_size)):
-            raise ValueError(
-                "Feature size must be divisible by patch_size to avoid silently "
-                f"discarding boundary voxels; got {tuple(spatial_size)} and {self.patch_size}"
-            )
+        right_padding = tuple(
+            (patch - size % patch) % patch
+            for size, patch in zip(spatial_size, self.patch_size)
+        )
+        if any(right_padding):
+            evidence_features = F.pad(evidence_features, (0, right_padding[2], 0, right_padding[1], 0, right_padding[0]))
+        padded_spatial_size = evidence_features.shape[2:]
         patch_map = self.patch_embedding(evidence_features)
         patch_map = patch_map + self.position_conv(patch_map)
         token_grid = patch_map.shape[2:]
@@ -369,7 +392,7 @@ class TransformerCalibratedCAPM(EvidenceCalibratedCAPM):
         )
         gates = F.interpolate(
             gate_map,
-            size=spatial_size,
+            size=padded_spatial_size,
             mode="trilinear",
             align_corners=False,
         )
@@ -384,6 +407,12 @@ class TransformerCalibratedCAPM(EvidenceCalibratedCAPM):
             if attention_weights is None:
                 raise RuntimeError("Attention weights were requested but not returned")
             audit["attention"] = attention_weights
+        gates = gates[
+            :, :, : spatial_size[0], : spatial_size[1], : spatial_size[2]
+        ]
+        audit["right_padding"] = torch.tensor(
+            right_padding, device=evidence_features.device
+        )
         return gates, audit
 
     def forward(
@@ -457,7 +486,7 @@ class ScaleTableInteractionAblation3D(nn.Module):
         transformer_dropout: float = 0.1,
         classifier_dropout: float = 0.3,
         gate_init: float = 0.95,
-        input_shape: tuple[int, int, int] = (160, 160, 96),
+        input_shape: tuple[int, int, int] = (160, 196, 160),
     ) -> None:
         super().__init__()
         if preset not in ABLATION_PRESETS:
@@ -494,11 +523,14 @@ class ScaleTableInteractionAblation3D(nn.Module):
         if interaction == "image_only":
             self.calibrator: nn.Module | None = None
         elif interaction == "original_capm":
+            self.original_feature_shape = _selected_feature_shape(
+                self.input_shape, self.preset.selected_stage
+            )
             self.calibrator = OriginalPatchwiseCAPM(
                 txt_dim=self.txt_dim,
                 patch_size=self.preset.patch_size,
-                expected_feature_shape=_selected_feature_shape(
-                    self.input_shape, self.preset.selected_stage
+                expected_feature_shape=_right_padded_shape(
+                    self.original_feature_shape, self.preset.patch_size
                 ),
             )
         elif interaction in {"transformer_self", "transformer_cross"}:
@@ -521,6 +553,8 @@ class ScaleTableInteractionAblation3D(nn.Module):
                 spatial_shape=spatial_shape,
                 gate_init=gate_init,
             )
+        if interaction != "original_capm":
+            self.original_feature_shape: tuple[int, int, int] | None = None
 
         self.pool = nn.AdaptiveAvgPool3d(1)
         self.dropout = nn.Dropout(classifier_dropout)
@@ -640,8 +674,9 @@ class ScaleTableInteractionAblation3D(nn.Module):
             "selected_stage": self.preset.selected_stage,
             "patch_size": self.preset.patch_size,
             "expected_tokens_128": self.preset.expected_tokens_128,
-            "expected_tokens_160x160x96": self.preset.expected_tokens_160x160x96,
+            "expected_tokens_160x196x160": self.preset.expected_tokens_160x196x160,
             "input_shape": self.input_shape,
+            "original_feature_shape": self.original_feature_shape,
             "interaction": self.interaction,
             "table_variables": tuple(spec["name"] for spec in self.var_specs),
         }

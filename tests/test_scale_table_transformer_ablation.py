@@ -46,8 +46,8 @@ def test_equal_token_budget_presets_on_128_geometry():
     assert deep_audit["token_count"].item() == 64
     assert ABLATION_PRESETS["layer3_patch2"].expected_tokens_128 == 64
     assert ABLATION_PRESETS["layer4_pixel"].expected_tokens_128 == 64
-    assert ABLATION_PRESETS["layer3_patch2"].expected_tokens_160x160x96 == 75
-    assert ABLATION_PRESETS["layer4_pixel"].expected_tokens_160x160x96 == 75
+    assert ABLATION_PRESETS["layer3_patch2"].expected_tokens_160x196x160 == 175
+    assert ABLATION_PRESETS["layer4_pixel"].expected_tokens_160x196x160 == 175
 
 
 def test_cross_attention_shapes_and_exact_capm_control():
@@ -78,7 +78,7 @@ def test_cross_attention_shapes_and_exact_capm_control():
     torch.testing.assert_close(controlled, expected)
 
 
-def test_transformer_neither_drops_partial_patches_nor_stores_attention_without_audit():
+def test_transformer_pads_partial_patches_and_skips_attention_without_audit():
     module = TransformerCalibratedCAPM(
         demographic_var_specs(),
         feature_dim=8,
@@ -89,8 +89,10 @@ def test_transformer_neither_drops_partial_patches_nor_stores_attention_without_
         num_heads=4,
         dropout=0.0,
     )
-    with pytest.raises(ValueError, match="divisible"):
-        module(torch.randn(2, 8, 3, 3, 3), _table())
+    padded_output = module(torch.randn(2, 8, 3, 3, 3), _table())
+    assert padded_output.shape == (2, 8, 3, 3, 3)
+    assert module.last_audit is not None
+    assert module.last_audit["right_padding"].tolist() == [1, 1, 1]
 
     module(torch.randn(2, 8, 4, 4, 4), _table())
     assert module.last_audit is not None
@@ -152,7 +154,34 @@ def test_original_capm_ablation_uses_fixed_source_geometry():
     assert audit["patch_count"].item() == 1
     signature = model.experiment_signature()
     assert signature["input_shape"] == (32, 32, 32)
-    assert signature["expected_tokens_160x160x96"] == 75
+    assert signature["expected_tokens_160x196x160"] == 175
+
+
+def test_original_capm_uses_explicit_padding_for_native_journal_shape():
+    model = ScaleTableInteractionAblation3D(
+        preset="layer3_patch2",
+        interaction="original_capm",
+        layers=(1, 1, 1, 1),
+    )
+    assert model.original_feature_shape == (10, 13, 10)
+    assert model.calibrator.expected_feature_shape == (10, 14, 10)
+    assert model.calibrator.patch_count == 175
+
+
+def test_original_capm_right_pads_and_crops_odd_feature_dimension():
+    module = OriginalPatchwiseCAPM(
+        txt_dim=3,
+        patch_size=2,
+        expected_feature_shape=(4, 6, 4),
+        table_dim=8,
+    )
+    for parameter in module.z_to_patch.parameters():
+        torch.nn.init.zeros_(parameter)
+    features = torch.randn(2, 4, 4, 5, 4)
+    output, audit = module(features, _table(), return_audit=True)
+    assert output.shape == features.shape
+    torch.testing.assert_close(output, 2.0 * features)
+    assert audit["right_padding"].tolist() == [0, 1, 0]
 
 
 def test_image_only_mode_does_not_require_table():

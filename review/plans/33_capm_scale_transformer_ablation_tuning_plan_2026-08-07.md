@@ -34,8 +34,8 @@ F_out = F + Norm((1 - m(F,z)) * F)
 
 ### 1.2 假设与基线
 
-- H1：相同 75-token 预算下，`layer3_patch2` 与 `layer4_pixel` 的差异主要反映语义深度和局部粒度差异，而不是 token 数量差异。
-- H2：`layer5_pixel` 的 18-token 极端可以检验过度下采样是否损失细粒度人口学-影像交互。
+- H1：相同 175-token 预算下，`layer3_patch2` 与 `layer4_pixel` 的差异主要反映语义深度和局部粒度差异，而不是 token 数量差异。
+- H2：`layer5_pixel` 的 36-token 极端可以检验过度下采样是否损失细粒度人口学-影像交互。
 - H3：若表格交互有效，`transformer_cross` 应稳定优于容量匹配的 `transformer_self`，且不能由 table-free 或卷积门控对照解释。
 - H4：原始 patchwise CAPM 是历史机制对照；它的调制为 `X_adj=(2-gamma)X`，不等同于当前 CAPM，也不承担严格等价基线职责。其来源固定为 `redtea-code/Causal_fusion@d1a37d9`。
 
@@ -62,9 +62,12 @@ labels        = MCI=0, AD=1
 directions    = ADNI_to_NACC, NACC_to_ADNI
 table         = [age, sex, education]
 preprocessing = skullstrip+n4+mni+crop+normalize
-input_shape   = [160, 160, 96]
+input_shape   = [160, 196, 160]
 split_seed    = 42
 ```
+
+该尺寸必须在正式运行前从冻结 manifest 对应的实际 NIfTI 文件抽样核验，并把核验结果与 manifest hash 一起归档。
+若实际尺寸不同，必须生成新的 protocol revision；禁止由数据加载器静默 resize 后继续使用本计划的 token 数。
 
 表格变量固定为三个，顺序、缺失值处理和标准化在所有 table-aware 变体间完全一致。不得在本轮加入
 MMSE、CDRSB、ADAS11、FAQ、APOE4、site 或任何采集参数。
@@ -106,12 +109,12 @@ External target 不参与训练、调参、early stopping、正则权重选择�
 
 真实数据训练前必须通过：
 
-1. `layer3_patch2` 在 `160x160x96` 输入下得到 `10x10x6` 特征图、`5x5x3=75` tokens；
-2. `layer4_pixel` 得到 `5x5x3=75` tokens；
-3. `layer5_pixel` 得到 `3x3x2=18` tokens；
-4. patch 不能整除特征图时显式失败，不允许静默丢弃边界体素；
+1. `layer3_patch2` 在 `160x196x160` 输入下得到 `10x13x10` 特征图，右侧补齐为 `10x14x10`，得到 `5x7x5=175` tokens；
+2. `layer4_pixel` 得到 `5x7x5=175` tokens；
+3. `layer5_pixel` 得到 `3x4x3=36` tokens；
+4. patch 不能整除特征图时只能做显式右侧 padding，并在 audit 中记录 padding，禁止静默丢弃边界体素；
 5. `force_capm=True` 的门控全为 1，FP32 CPU 下与公式路径最大绝对误差不超过 `1e-6`；
-6. `original_capm` 在 `gamma=0` 时严格满足 `X_adj=2X`，且固定几何不匹配时拒绝运行；
+6. `original_capm` 在 `gamma=0` 时严格满足 `X_adj=2X`；较小的奇数特征维度只能通过记录在 audit 中的右侧 padding 对齐，超出预期几何时拒绝运行；
 7. 普通训练前向不保存完整 attention matrix；只有 `return_audit=True` 时导出；
 8. 所有变体完成 forward、backward、checkpoint save/reload，logits 和正则项无 NaN/Inf；
 9. 实际运行的 `experiment_signature()` 与 resolved config 一致。
@@ -139,12 +142,12 @@ E2 只用 `seed=42` 的 source validation 做筛选，两个方向采用相同�
 
 | ID | preset | tokens | interaction | 解释 |
 | --- | --- | ---:| --- | --- |
-| S1 | `layer3_patch2` | 75 | `transformer_self` | 浅层、patch-level 容量对照 |
-| S2 | `layer4_pixel` | 75 | `transformer_self` | 深层、pixel-level 容量对照 |
-| S3 | `layer5_pixel` | 18 | `transformer_self` | 极粗粒度容量对照 |
-| S4 | `layer3_patch2` | 75 | `transformer_cross` | 浅层 patch-table 交互 |
-| S5 | `layer4_pixel` | 75 | `transformer_cross` | 深层 pixel-table 交互 |
-| S6 | `layer5_pixel` | 18 | `transformer_cross` | 极粗粒度 table 交互 |
+| S1 | `layer3_patch2` | 175 | `transformer_self` | 浅层、patch-level 容量对照 |
+| S2 | `layer4_pixel` | 175 | `transformer_self` | 深层、pixel-level 容量对照 |
+| S3 | `layer5_pixel` | 36 | `transformer_self` | 极粗粒度容量对照 |
+| S4 | `layer3_patch2` | 175 | `transformer_cross` | 浅层 patch-table 交互 |
+| S5 | `layer4_pixel` | 175 | `transformer_cross` | 深层 pixel-table 交互 |
+| S6 | `layer5_pixel` | 36 | `transformer_cross` | 极粗粒度 table 交互 |
 
 S1/S2 是等 token 预算比较，但 backbone stage 和通道数仍不同，因此结论只能写为“整体尺度配置差异”，
 不能写成纯粹的 patch-size 因果效应。`transformer_cross - transformer_self` 才是表格交互的直接增量。
