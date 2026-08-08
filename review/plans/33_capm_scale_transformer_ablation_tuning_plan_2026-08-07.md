@@ -1,5 +1,9 @@
 # CAPM-ABL-P1：特征尺度、Patch-Table 交互消融与参数调整计划
 
+> 历史计划声明：本计划固定了 `subjects_all_paired` 的 subject-wide 排除，
+> 仅用于复现其对应 revision。后续 scan-filtered 实验不得沿用本计划的纳排、
+> manifest 或结果目录；请使用 `34_scan_filtered_capm_execution_plan_2026-08-08.md`。
+
 ## 基本信息
 
 - 日期：2026-08-07

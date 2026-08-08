@@ -1,5 +1,10 @@
 # IE-CAPM 与 APIC v3_2 对齐实验协议
 
+> 历史协议声明：本文件记录配对 subject-wide 排除的旧 revision，供既有结果复现。
+> 新的 scan-filtered 实验不得使用本文件第 3--4 节；应遵循
+> `docs/IE_CAPM_APIC_V3_2_SCAN_FILTERED_1P5T_PROTOCOL.md` 和
+> `review/plans/34_scan_filtered_capm_execution_plan_2026-08-08.md`。
+
 ## 1. 协议定位
 
 本协议用于评估 Image-Evidence Calibrated CAPM（IE-CAPM）是否能够在
