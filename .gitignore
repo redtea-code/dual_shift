@@ -1,0 +1,9 @@
+# Python bytecode and test caches are machine-specific build artifacts.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.uvcache/
+
+# Local IDE state and scratch space are not experiment records.
+.idea/
+tmp/

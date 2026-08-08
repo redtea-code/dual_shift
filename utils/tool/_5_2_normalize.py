@@ -289,8 +289,9 @@ def _init_worker(args: argparse.Namespace) -> None:
 
 def _worker_fn(task: tuple[int, str, str]) -> dict:
     """Process a single subject (called from worker pool)."""
-    idx, subject_name, subject_dir = task
-    assert _worker_args is not None
+    _, subject_name, subject_dir = task
+    if _worker_args is None:
+        raise RuntimeError("worker pool was started without _init_worker arguments")
     return process_one_subject(subject_name, subject_dir, _worker_args)
 
 
