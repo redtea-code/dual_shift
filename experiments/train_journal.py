@@ -1547,6 +1547,11 @@ def _manifest(
             "covariates": "cov3_age_sex_edu",
             "environment": f"env_{config.get('environments', {}).get('mode', 'age_sex')}",
             "metrics": "subject_mean",
+            "scan_filtered_protocol": (
+                (config.get("scan_filtered_protocol") or {}).get("version")
+                if bool((config.get("scan_filtered_protocol") or {}).get("enabled", False))
+                else None
+            ),
             "baseline_ce_name": (
                 "weighted_ce"
                 if config.get("training", {}).get("class_weighted_ce", False)
@@ -1814,8 +1819,16 @@ def run(
     val_ratio = float(train_cfg.get("val_ratio", 0.2))
     test_ratio = float(train_cfg.get("test_ratio", 0.2))
     claim_cfg = config.get("claim") or {}
+    scan_filtered_protocol = bool(
+        (config.get("scan_filtered_protocol") or {}).get("enabled", False)
+    )
     holdout_subjects: set[str] = set()
     holdout_path = claim_cfg.get("exclude_subjects_json")
+    if scan_filtered_protocol and holdout_path:
+        raise ValueError(
+            "scan_filtered_protocol is incompatible with claim.exclude_subjects_json; "
+            "remove the legacy subject-wide paired holdout from the new config"
+        )
     holdout_key = str(claim_cfg.get("exclude_subjects_key", "subjects_le_30d"))
     holdout_sha = None
     if holdout_path:

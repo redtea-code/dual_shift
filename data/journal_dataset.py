@@ -767,6 +767,24 @@ def build_journal_dataset(config: Mapping, cohort: str):
         require_diagnosis_match=bool(match_cfg.get("require_diagnosis_match", True)),
         on_diagnosis_mismatch=str(match_cfg.get("on_diagnosis_mismatch", "exclude")),
     )
+    filtered_cfg = config.get("scan_filtered_protocol", {}) or {}
+    if bool(filtered_cfg.get("enabled", False)):
+        from data.scan_filtered_loader import ScanFilteredManifestDataset
+
+        root = filtered_cfg.get("root") or (config.get("scan_manifest", {}) or {}).get(
+            "root", "F:/ADNI/scan_manifests"
+        )
+        files = filtered_cfg.get("files") or {}
+        filename = files.get(cohort) or f"{cohort}_scan_filtered_manifest.csv"
+        manifest_csv = os.path.join(str(root), str(filename))
+        return ScanFilteredManifestDataset(
+            root=spec["image_root"],
+            manifest_csv=manifest_csv,
+            image_filename=spec["image_filename"],
+            cohort=cohort,
+            expose_acquisition=bool(filtered_cfg.get("expose_acquisition", False)),
+            **common,
+        )
     if bool(scan_cfg.get("enabled", False)):
         root = scan_cfg.get("root", "F:/ADNI/scan_manifests")
         files = scan_cfg.get("files") or {}
