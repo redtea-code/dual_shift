@@ -3,8 +3,8 @@
 日期：2026-08-08
 状态：待 E0 manifest gate
 协议版本：`scan_filtered_v1_2026-08-08`
-冻结代码：分支 `codex/scan-filtered-loader`；不可变发布标签 `plan34-scan-filtered-v1`。
-执行机器必须 `git checkout --detach plan34-scan-filtered-v1`，并在启动前记录解析出的
+冻结代码：分支 `main`；不可变发布标签 `plan34-scan-filtered-v2`。
+执行机器必须 `git checkout --detach plan34-scan-filtered-v2`，并在启动前记录解析出的
 commit SHA。不得只记录分支名，也不得在实验期间执行 `git pull`。
 
 ## 1. 适用范围与历史边界

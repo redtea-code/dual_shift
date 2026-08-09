@@ -15,5 +15,5 @@ experiment stack defined by Plan 34.
 Historic models, protocols, result archives, and legacy experiment scripts are
 preserved on `archive/pre-plan34-cleanup-20260809`.
 
-Distributed Plan 34 runs must use the immutable `plan34-scan-filtered-v1` tag,
+Distributed Plan 34 runs must use the immutable `plan34-scan-filtered-v2` tag,
 not the moving branch head.

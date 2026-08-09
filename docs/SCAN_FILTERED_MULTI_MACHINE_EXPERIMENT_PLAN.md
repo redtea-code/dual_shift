@@ -5,7 +5,7 @@
 任务：`<TASK>`
 发布分支：`main`
 
-冻结代码：不可变标签 `plan34-scan-filtered-v1`。每台机器必须 checkout 此标签的
+冻结代码：不可变标签 `plan34-scan-filtered-v2`。每台机器必须 checkout 此标签的
 detached HEAD，并将实际 SHA 写入 `git_commit.txt`；不得只记录分支名或在实验期间
 执行 `git pull`。
 
@@ -39,7 +39,7 @@ ADNI 中同时拥有 1.5T 和 3T 的 subject 保留其 1.5T scan；其 3T scan �
 
 ```text
 git fetch origin --tags
-git checkout --detach plan34-scan-filtered-v1
+git checkout --detach plan34-scan-filtered-v2
 git rev-parse HEAD
 <PYTHON> -m pytest -q tests/test_scan_filtered_loader.py tests/test_evidence_calibrated_capm.py tests/test_scale_table_transformer_ablation.py
 <PYTHON> -m py_compile data/scan_filtered_loader.py data/journal_dataset.py experiments/train_journal.py
@@ -175,7 +175,7 @@ M2 将 `--directions` 改为 `NACC_to_ADNI`。训练预算、variants、checkpoi
 ```text
 你负责执行 dual_shift 的 scan-filtered 期刊实验。严格遵守以下规则：
 
-1. `git fetch origin --tags` 后执行 `git checkout --detach plan34-scan-filtered-v1`；确认 `git rev-parse HEAD` 与主控提供的 SHA 一致，不得执行 `git pull`。
+1. `git fetch origin --tags` 后执行 `git checkout --detach plan34-scan-filtered-v2`；确认 `git rev-parse HEAD` 与主控提供的 SHA 一致，不得执行 `git pull`。
 2. 使用本机已验证的 Python 环境 `<PYTHON>`，不要升级依赖。
 3. 只使用主控指定的 `<TASK_CONFIG>.yaml`，并确认任务是 `<TASK>`。
 4. ADNI 只允许 1.5T scan；NACC 只允许 3T scan。ADNI 中拥有 3T 的 subject 仍保留其 1.5T，但 3T 行必须不存在于 manifest。
