@@ -3,13 +3,16 @@
 日期：2026-08-08
 状态：待 E0 manifest gate
 协议版本：`scan_filtered_v1_2026-08-08`
-适用分支：`codex/scan-filtered-loader`
+冻结代码：分支 `codex/scan-filtered-loader`；不可变发布标签 `plan34-scan-filtered-v1`。
+执行机器必须 `git checkout --detach plan34-scan-filtered-v1`，并在启动前记录解析出的
+commit SHA。不得只记录分支名，也不得在实验期间执行 `git pull`。
 
 ## 1. 适用范围与历史边界
 
 本计划是后续 CAPM、IE-CAPM、原始 CAPM 对照以及 feature-scale / patch-table
 交互消融的唯一执行计划。它取代旧计划中“删除 73 个 paired subject”的未来执行
-含义，但不改写那些计划或已有结果。
+含义，但不改写那些计划或已有结果。APIC V3_2 仅保留为独立的接线 smoke 轨道；
+结构筛选和论文主表仅使用本计划的 scale-table 轨道。
 
 禁止把本计划产生的结果与旧 `subjects_all_paired` 协议结果混为同一数据版本。
 每个输出必须保存 protocol version、git commit、task YAML hash 和两个 manifest hash。
@@ -59,8 +62,12 @@ partition。target 完整保留，绝不用于训练、early stopping、checkpoi
 ### E1：每 task x direction 的 smoke
 
 从任务 YAML 生成 smoke YAML，只允许改变：`epochs=1`、`bootstrap_samples=10`、输出根目录。
-运行 `image_only`、`capm`、`transformer_cross`（若该 launcher 对应 scale ablation）；若当前
-journal launcher 仅支持 APIC variants，则运行其预注册 `ce_x`、`mixstyle_x`、`apic_v3_2_x`。
+
+- 结构 smoke 使用 `journal_scale_table_scan_filtered_1p5t_mci_ad.yaml`，运行
+  `image_only capm transformer_cross`；它们由 `experiments/train_journal.py` 直接构建
+  `ScaleTableInteractionAblation3D`。
+- APIC 接线 smoke 使用 `journal_dual_shift_scan_filtered_1p5t_mci_ad.yaml`，运行
+  `ce_x mixstyle_x apic_v3_2_x`。该轨道不参与 E2 结构选择，也不与结构消融合并统计。
 
 检查 dataloader 样本构成、input shape、source-val checkpoint、NaN/Inf、collapse guard、
 预测文件和 target 未参与选模。E1 不作性能主张。
@@ -69,12 +76,14 @@ journal launcher 仅支持 APIC variants，则运行其预注册 `ce_x`、`mixst
 
 对每个 task 和方向，固定 `seed=42`，仅用 source validation BA + collapse guard 筛选：
 
-| family | variants |
+| family | YAML setting / variants |
 |---|---|
-| 基线 | `image_only`, `capm`, `original_capm` |
-| 尺度 | `layer3_patch2`, `layer4_pixel`, `layer5_pixel` |
-| 交互 | `conv_gate`, `transformer_self`, `transformer_cross` |
+| 尺度 | 对 `scale_table_ablation.preset` 分别生成 `layer3_patch2`、`layer4_pixel`、`layer5_pixel` 的 resolved YAML |
+| 基线与原始对照 | 每个尺度运行 `image_only`、`capm`、`original_capm` |
+| 门控与交互 | 每个尺度运行 `conv_gate`、`transformer_self`、`transformer_cross` |
 
+训练接口允许的结构 variant 仅为 `image_only`、`capm`、`conv_gate`、`original_capm`、
+`transformer_self`、`transformer_cross`；尺度不是 variant 名，而是 YAML 的 `preset`。
 严格比较遵循同尺度、同训练预算、同三变量、同 source split。注意力权重不构成因果解释；
 `transformer_cross` 的关键比较是其相对同尺度 `transformer_self` 的差值。
 

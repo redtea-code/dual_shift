@@ -128,6 +128,14 @@ VARIANT_STAGES = {
     "mixstyle_xd": "apic_v3_screening",
     "apic_v3_xd": "apic_v3_screening",
     "apic_v3_2_x": "apic_v3_2_screening",
+    # Plan 34 scale / table-interaction ablations. The feature scale is
+    # controlled by ``scale_table_ablation.preset`` in the task YAML.
+    "image_only": "scale_table_ablation",
+    "capm": "scale_table_ablation",
+    "conv_gate": "scale_table_ablation",
+    "original_capm": "scale_table_ablation",
+    "transformer_self": "scale_table_ablation",
+    "transformer_cross": "scale_table_ablation",
 }
 
 # Display names: ce_only with class_weighted_ce is weighted CE, not plain CE.
@@ -161,11 +169,27 @@ VARIANT_DISPLAY = {
     "mixstyle_xd": "mixstyle_xd",
     "apic_v3_xd": "apic_v3_xd",
     "apic_v3_2_x": "apic_v3_2_x",
+    "image_only": "image_only",
+    "capm": "capm",
+    "conv_gate": "conv_gate",
+    "original_capm": "original_capm",
+    "transformer_self": "transformer_self",
+    "transformer_cross": "transformer_cross",
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
 METADATA_VARIANTS = frozenset({"metadata", "metadata_xda"})
 PATCH_GAMMA_VARIANTS = frozenset({"gamma"})
+SCALE_TABLE_VARIANTS = frozenset(
+    {
+        "image_only",
+        "capm",
+        "conv_gate",
+        "original_capm",
+        "transformer_self",
+        "transformer_cross",
+    }
+)
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
 DUAL_SHIFT_VARIANTS = frozenset(
     {
@@ -533,6 +557,34 @@ def _make_model(config, num_classes, variant):
             preset=variant,
         )
 
+    if variant in SCALE_TABLE_VARIANTS:
+        from Model.ablation import build_scale_table_ablation
+
+        ablation_cfg = config.get("scale_table_ablation") or {}
+        input_shape = tuple(
+            int(value)
+            for value in ablation_cfg.get(
+                "input_shape",
+                config.get("training", {}).get("image_shape", (160, 196, 160)),
+            )
+        )
+        layers = tuple(int(value) for value in ablation_cfg.get("layers", (2, 2, 2, 2)))
+        if len(layers) != 4:
+            raise ValueError("scale_table_ablation.layers must contain four stage depths")
+        return build_scale_table_ablation(
+            preset=str(ablation_cfg.get("preset", "layer4_pixel")),
+            interaction=variant,
+            num_classes=num_classes,
+            layers=layers,
+            spatial_shape=tuple(int(value) for value in ablation_cfg.get("spatial_shape", (4, 4, 4))),
+            transformer_dim=int(ablation_cfg.get("transformer_dim", 128)),
+            num_heads=int(ablation_cfg.get("num_heads", 4)),
+            transformer_dropout=float(ablation_cfg.get("transformer_dropout", 0.1)),
+            classifier_dropout=float(ablation_cfg.get("classifier_dropout", 0.3)),
+            gate_init=float(ablation_cfg.get("gate_init", 0.95)),
+            input_shape=input_shape,
+        )
+
     if variant in DUAL_SHIFT_VARIANTS:
         ds = config.get("dual_shift") or {}
         model_config = config["model"]
@@ -664,6 +716,10 @@ def _make_model(config, num_classes, variant):
 def _logits(model, batch, spatial, variant=None):
     image = batch["image"]
     covariates = batch["covariates"]
+    if variant in SCALE_TABLE_VARIANTS:
+        # image_only ignores the table argument; every table-aware ablation
+        # receives the same frozen cov3 tensor in the documented order.
+        return model(image, covariates)
     if variant in DICTIONARY_VARIANTS:
         return model(image, covariates)
     if variant in METADATA_VARIANTS:
@@ -1078,6 +1134,7 @@ def _train_variant(
     use_dro = variant in {"groupdro", "spatial_groupdro"}
     external = variant in EXTERNAL_FUSION_VARIANTS
     patch_gamma = variant in PATCH_GAMMA_VARIANTS
+    scale_table = variant in SCALE_TABLE_VARIANTS
     dictionary = variant in DICTIONARY_VARIANTS
     dual_shift = variant in DUAL_SHIFT_VARIANTS
     metadata = variant in METADATA_VARIANTS
@@ -1123,7 +1180,7 @@ def _train_variant(
                 "weight_decay", config["training"]["weight_decay"]
             )
         )
-    elif spatial or external or patch_gamma:
+    elif spatial or external or patch_gamma or scale_table:
         parameters = model.parameters()
         lr = float(config["training"]["learning_rate"])
         weight_decay = float(config["training"]["weight_decay"])
@@ -1459,6 +1516,9 @@ def _train_variant(
                 _gamma_summary(model)
                 if spatial
                 else (_patch_gamma_summary(model) if patch_gamma else None)
+            ),
+            "scale_table_ablation": (
+                model.experiment_signature() if scale_table else None
             ),
             "group_weights": None if dro is None else dro.group_weights.cpu().tolist(),
             "best_checkpoint_epoch": int(checkpoint["epoch"]),
