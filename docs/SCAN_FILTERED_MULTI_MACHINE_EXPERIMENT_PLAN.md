@@ -3,7 +3,7 @@
 版本：1.0
 协议：`scan_filtered_v1_2026-08-08`
 任务：`<TASK>`
-发布分支：`codex/scan-filtered-loader`
+发布分支：`main`
 
 冻结代码：不可变标签 `plan34-scan-filtered-v1`。每台机器必须 checkout 此标签的
 detached HEAD，并将实际 SHA 写入 `git_commit.txt`；不得只记录分支名或在实验期间
@@ -49,7 +49,11 @@ E0 必须满足：测试通过、Python 编译通过、工作区没有对协议�
 
 ## 4. Manifest 门
 
-先由 M0 使用 `write_filtered_manifest` 生成：
+先由 M0 使用正式入口生成：
+
+```text
+<PYTHON> experiments/run_scan_filtered_e0.py --config <TASK_CONFIG>.yaml --adni-input <ADNI_RAW_MANIFEST>.csv --nacc-input <NACC_RAW_MANIFEST>.csv --output-root <MANIFEST_ROOT>
+```
 
 ```text
 <MANIFEST_ROOT>/ADNI_1p5T_scan_filtered_manifest.csv
@@ -126,6 +130,10 @@ M1/M2 分别执行自己的方向：
 ```text
 <PYTHON> experiments/train_journal.py --config_path <SCALE_TASK_CONFIG>.yaml --study --directions ADNI_to_NACC --seeds 42 43 --output-dir <OUTPUT_ROOT>/<task>/<preset>/adni_to_nacc
 ```
+
+E2 不得使用上述 `--study` 外部评估入口。对每个固定 task/direction/seed 运行
+`experiments/train_journal.py ... --source-only`；该模式不会构造、加载或推理 target。
+E3 才可移除 `--source-only` 并使用 E2 冻结的 `--split-manifest`。
 
 M2 将 `--directions` 改为 `NACC_to_ADNI`。训练预算、variants、checkpoint 选择、collapse guard、subject_mean 聚合和 200 次 subject-level bootstrap 均不可改变。
 

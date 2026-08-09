@@ -467,6 +467,8 @@ def _fit_protocol(
         subject_ids=source.subject_ids[test_indices],
         validate_no_train_overlap=True,
     )
+    if target is None:
+        return preprocessor, builder, train_env, val_env, test_env, None
     target_indices = (
         np.arange(len(target))
         if target_indices is None
@@ -1394,8 +1396,9 @@ def _train_variant(
         test_result = run_dual_shift_epoch(
             model, test_loader, device, config=config, epoch=0, variant=variant
         )
-        target_result = run_dual_shift_epoch(
-            model, target_loader, device, config=config, epoch=0, variant=variant
+        target_result = (
+            run_dual_shift_epoch(model, target_loader, device, config=config, epoch=0, variant=variant)
+            if target_loader is not None else None
         )
     else:
         val_result = _run_epoch(
@@ -1416,24 +1419,21 @@ def _train_variant(
             spatial=spatial,
             variant=variant,
         )
-        target_result = _run_epoch(
-            model,
-            target_loader,
-            device,
-            dro=None,
-            config=config,
-            spatial=spatial,
-            variant=variant,
+        target_result = (
+            _run_epoch(model, target_loader, device, dro=None, config=config, spatial=spatial, variant=variant)
+            if target_loader is not None else None
         )
     eval_cfg = config.get("evaluation", {})
     aggregate = str(eval_cfg.get("aggregate", "subject_mean"))
     cluster = bool(eval_cfg.get("cluster_by_subject", True))
     reports = {}
-    for split, result in (
+    evaluated_splits = (
         ("source_val", val_result),
         ("source_test", test_result),
-        ("target", target_result),
-    ):
+    ) + (("target", target_result),) if target_result is not None else (
+        ("source_val", val_result), ("source_test", test_result)
+    )
+    for split, result in evaluated_splits:
         probabilities = _save_predictions(variant_dir / f"{split}_predictions.csv", result)
         scan_metrics = compute_journal_metrics(
             probabilities,
@@ -1581,6 +1581,7 @@ def _manifest(
     config,
     *,
     target_indices=None,
+    source_only: bool = False,
 ):
     def rows(dataset, indices, split, cohort):
         return [
@@ -1599,8 +1600,10 @@ def _manifest(
         return sorted(dataset.records[index]["folder"] for index in indices)
 
     source_name, target_name = direction.split("_to_")
-    if target_indices is None:
+    if target is not None and target_indices is None:
         target_indices = list(range(len(target)))
+    if target_indices is None:
+        target_indices = []
     return {
         "direction": direction,
         "protocol": {
@@ -1636,20 +1639,21 @@ def _manifest(
         "source_train_folders": folders(source, train_indices),
         "source_val_folders": folders(source, val_indices),
         "source_test_folders": folders(source, test_indices),
-        "target_subjects": sorted(set(target.subject_ids[target_indices].tolist())),
-        "target_folders": folders(target, target_indices),
+        "target_subjects": [] if target is None else sorted(set(target.subject_ids[target_indices].tolist())),
+        "target_folders": [] if target is None else folders(target, target_indices),
         "samples": rows(source, train_indices, "source_train", source_name)
         + rows(source, val_indices, "source_val", source_name)
         + rows(source, test_indices, "source_test", source_name)
-        + rows(target, target_indices, "target_e1", target_name),
+        + ([] if target is None else rows(target, target_indices, "target_e1", target_name)),
         "covariate_preprocessor": preprocessor.to_dict(),
         "environment": builder.to_dict(),
         "dataset_fingerprint": {
             "source_n": int(len(source)),
-            "target_n": int(len(target)),
+            "target_n": 0 if target is None else int(len(target)),
             "source_subjects": int(len(set(source.subject_ids.tolist()))),
-            "target_subjects": int(len(set(target.subject_ids.tolist()))),
-            "e1_target_n": int(len(target_indices)),
+            "target_subjects": 0 if target is None else int(len(set(target.subject_ids.tolist()))),
+            "e1_target_n": 0 if target is None else int(len(target_indices)),
+            "source_only": bool(source_only),
         },
     }
 
@@ -1870,10 +1874,12 @@ def run(
     *,
     skip_existing: bool = True,
     split_manifest: str | None = None,
+    source_only: bool = False,
 ):
     seed_everything(int(config["seed"]))
     source_name, target_name = direction.split("_to_")
-    source, target = _dataset(config, source_name), _dataset(config, target_name)
+    source = _dataset(config, source_name)
+    target = None if source_only else _dataset(config, target_name)
     train_cfg = config["training"]
     train_ratio = float(train_cfg.get("train_ratio", 0.6))
     val_ratio = float(train_cfg.get("val_ratio", 0.2))
@@ -1948,10 +1954,10 @@ def run(
         source.subject_ids[test_indices],
     )
     all_source_indices = np.arange(len(source), dtype=int)
-    all_target_indices = np.arange(len(target), dtype=int)
+    all_target_indices = np.arange(len(target), dtype=int) if target is not None else np.asarray([], dtype=int)
     source_e3_paired_indices = np.asarray([], dtype=int)
     target_e3_paired_indices = np.asarray([], dtype=int)
-    if holdout_subjects:
+    if holdout_subjects and target is not None:
         # The paired cohort may be source (ADNI -> NACC) or target
         # (NACC -> ADNI). Preserve both sides explicitly for E3.
         source_e3_paired_indices = np.asarray(
@@ -1987,20 +1993,18 @@ def run(
         )
         if len(e1_target_indices) == 0:
             raise RuntimeError("hold-out exclusion emptied E1 target set")
-    else:
+    elif target is not None:
         e1_target_indices = all_target_indices
+    else:
+        e1_target_indices = np.asarray([], dtype=int)
     source_used_subjects = (
         set(map(str, source.subject_ids[train_indices].tolist()))
         | set(map(str, source.subject_ids[val_indices].tolist()))
         | set(map(str, source.subject_ids[test_indices].tolist()))
     )
-    e1_target_subjects = set(map(str, target.subject_ids[e1_target_indices].tolist()))
-    assert_no_subject_id_overlap(
-        source_used_subjects,
-        e1_target_subjects,
-        left_name="source_e1",
-        right_name="target_e1",
-    )
+    e1_target_subjects = set() if target is None else set(map(str, target.subject_ids[e1_target_indices].tolist()))
+    if target is not None:
+        assert_no_subject_id_overlap(source_used_subjects, e1_target_subjects, left_name="source_e1", right_name="target_e1")
     preprocessor, builder, train_env, val_env, test_env, target_env = _fit_protocol(
         source,
         train_indices,
@@ -2014,7 +2018,7 @@ def run(
     train_set = JournalSubset(source, train_indices, preprocessor, train_env)
     val_set = JournalSubset(source, val_indices, preprocessor, val_env)
     test_set = JournalSubset(source, test_indices, preprocessor, test_env)
-    target_set = JournalSubset(target, e1_target_indices, preprocessor, target_env)
+    target_set = None if target is None else JournalSubset(target, e1_target_indices, preprocessor, target_env)
     batch_size = int(config["training"]["batch_size"])
     if batch_size < 2:
         raise ValueError("training.batch_size must be >= 2 for BatchNorm stability")
@@ -2067,9 +2071,7 @@ def run(
     test_loader = DataLoader(
         test_set, batch_size=eval_batch, collate_fn=journal_collate, **common
     )
-    target_loader = DataLoader(
-        target_set, batch_size=eval_batch, collate_fn=journal_collate, **common
-    )
+    target_loader = None if target_set is None else DataLoader(target_set, batch_size=eval_batch, collate_fn=journal_collate, **common)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     manifest = _manifest(
         source,
@@ -2082,6 +2084,7 @@ def run(
         builder,
         config,
         target_indices=e1_target_indices,
+        source_only=source_only,
     )
     n_train_subj = len(set(source.subject_ids[train_indices].tolist()))
     n_val_subj = len(set(source.subject_ids[val_indices].tolist()))
@@ -2103,12 +2106,13 @@ def run(
     manifest["initialization_seed"] = int(training_seed)
     manifest["frozen_split_manifest"] = split_manifest
     manifest["e1_target_subjects"] = sorted(e1_target_subjects)
+    manifest["source_only"] = bool(source_only)
     manifest["e3_paired_subjects_by_cohort"] = {
         source_name: sorted(
             set(map(str, source.subject_ids[source_e3_paired_indices].tolist()))
         ),
         target_name: sorted(
-            set(map(str, target.subject_ids[target_e3_paired_indices].tolist()))
+            set() if target is None else map(str, target.subject_ids[target_e3_paired_indices].tolist())
         ),
     }
     manifest["e3_paired_indices_by_cohort"] = {
@@ -2192,7 +2196,7 @@ def run(
             resolved_device,
             class_weights=class_weights,
         )
-    comparisons = _paired_variant_comparisons(output_dir, selected, config)
+    comparisons = {} if source_only else _paired_variant_comparisons(output_dir, selected, config)
     save_json_summary(Path(output_dir) / "paired_comparisons.json", comparisons)
     save_json_summary(Path(output_dir) / "summary.json", results)
     gate_cfg = config.get("study", {}).get("gate", {})
@@ -2494,6 +2498,11 @@ def parse_args(argv=None):
     parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument(
+        "--source-only",
+        action="store_true",
+        help="Do not construct, load, or evaluate the external target cohort.",
+    )
+    parser.add_argument(
         "--force-variants",
         action="store_true",
         help="Retrain variants even when journal_metrics.json already exists",
@@ -2527,8 +2536,11 @@ def main(argv=None):
                 variants=args.variants,
                 device="cpu",
                 skip_existing=False,
+                source_only=args.source_only,
             )
     elif args.study:
+        if args.source_only:
+            raise ValueError("--study cannot be combined with --source-only; run one E2 direction/seed at a time")
         study_config = config.get("study", {})
         run_study(
             config,
@@ -2550,6 +2562,7 @@ def main(argv=None):
             device=args.device,
             skip_existing=skip_existing,
             split_manifest=args.split_manifest,
+            source_only=args.source_only,
         )
     print(f"[journal] completed: {os.path.abspath(output_dir)}")
 
