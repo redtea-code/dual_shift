@@ -1,1 +1,0 @@
-Wrote 2 run summaries and 100 epochs to /zjs/AD_Project/dual_shift_github/outputs/journal/apic_v3_2_m0_failure_diagnostics/history

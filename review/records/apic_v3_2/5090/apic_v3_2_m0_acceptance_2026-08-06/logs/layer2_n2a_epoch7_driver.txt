@@ -1,7 +1,0 @@
-==== smoke N2A postbank epoch7 2026-08-06T10:58:42+00:00 ====
-SMOKE_N2A_E7:0
-Wrote 128 sample diagnostics to /zjs/AD_Project/dual_shift_github/outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/seed42_nacc_to_adni_smoke_epoch7
-==== full N2A postbank epoch7 2026-08-06T10:59:28+00:00 ====
-FULL_N2A_E7:0
-Wrote 1322 sample diagnostics to /zjs/AD_Project/dual_shift_github/outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/seed42_nacc_to_adni_epoch7
-==== done 2026-08-06T11:05:26+00:00 ====

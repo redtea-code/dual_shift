@@ -1,36 +1,15 @@
-# dual_shift
+# dual_shift: Plan 34
 
-Dual-Shift 实验代码、结构化结果与研究记录仓库。
+This branch contains only the scan-filtered CAPM / IE-CAPM / APIC v3_2
+experiment stack defined by Plan 34.
 
-## 项目导航
+## Active entry points
 
-| 路径 | 内容 |
-|---|---|
-| `Model/` | 模型实现与模型级设计文档 |
-| `data/` | 数据加载和预处理源码 |
-| `experiments/` | 实验与结果导出脚本 |
-| `utils/` | 公共工具代码 |
-| `outputs/` | 已纳入版本控制的结构化指标、预测和审计结果 |
-| [`review/`](review/README.md) | 实验计划、执行记录、结果分析和协作交接 |
-| `docs/` | 团队协作规范与固定文档模板 |
+- `review/plans/34_scan_filtered_capm_execution_plan_2026-08-08.md`
+- `docs/IE_CAPM_APIC_V3_2_SCAN_FILTERED_1P5T_PROTOCOL.md`
+- `docs/SCAN_FILTERED_MULTI_MACHINE_EXPERIMENT_PLAN.md`
+- `journal_dual_shift_scan_filtered_1p5t_mci_ad.yaml`
+- `experiments/train_journal.py`
 
-## 文档入口
-
-- 实验文档分类与完整索引：[`review/README.md`](review/README.md)
-- APIS v2 实验记录：[`review/records/apis_v2/`](review/records/apis_v2/README.md)
-- APIC v3 实验记录：[`review/records/apic_v3/`](review/records/apic_v3/README.md)
-- 实验分析与记录固定模板：[`docs/EXPERIMENT_RECORD_TEMPLATE.md`](docs/EXPERIMENT_RECORD_TEMPLATE.md)
-- Git 协作与实验记录指南：[`docs/GIT_PROJECT_GUIDE_from_local.md`](docs/GIT_PROJECT_GUIDE_from_local.md)
-- Scan-aware 数据现实与当前主张边界：[`docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md`](docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md)
-- Support-aware paired protocol 执行计划：[`review/plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md`](review/plans/19_support_aware_paired_protocol_execution_plan_2026-08-03.md)
-- APIC v3 image-only 对比实验计划：[`review/plans/20_apic_v3_image_only_comparison_plan_2026-08-03.md`](review/plans/20_apic_v3_image_only_comparison_plan_2026-08-03.md)
-- APIC v3 失败机制诊断：[`review/operations/24_apic_v3_failure_diagnostics_2026-08-04.md`](review/operations/24_apic_v3_failure_diagnostics_2026-08-04.md)
-- APIC v3_2 模型设计草案：[`Model/APIC_V3_2_MODEL_DESIGN_DRAFT.md`](Model/APIC_V3_2_MODEL_DESIGN_DRAFT.md)
-- APIC v3_2 分阶段实验计划：[`review/plans/26_apic_v3_2_model_and_experiment_plan_2026-08-04.md`](review/plans/26_apic_v3_2_model_and_experiment_plan_2026-08-04.md)
-- APIC v3_2 实现审阅：[`review/analysis/27_apic_v3_2_implementation_review_2026-08-04.md`](review/analysis/27_apic_v3_2_implementation_review_2026-08-04.md)
-- APIC v3_2-A 配置：`journal_dual_shift_apic_v3_2_screen_{cn_ad,mci_ad}.yaml`
-- APIC v3_2-A launcher：`experiments/run_apic_v3_2_screening.py`
-- Dual-Shift 模型初步设计：[`Model/DUAL_SHIFT_MODEL_PRELIMINARY_DESIGN.md`](Model/DUAL_SHIFT_MODEL_PRELIMINARY_DESIGN.md)
-
-新增实验文档必须先按主要用途放入 `review/plans/`、`review/records/`、
-`review/analysis/` 或 `review/operations/`，并同步更新 `review/README.md`。
+Historic models, protocols, result archives, and legacy experiment scripts are
+preserved on `archive/pre-plan34-cleanup-20260809`.

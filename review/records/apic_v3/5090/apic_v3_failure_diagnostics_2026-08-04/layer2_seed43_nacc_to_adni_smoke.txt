@@ -1,1 +1,0 @@
-Wrote 128 sample diagnostics to /zjs/AD_Project/dual_shift_github/outputs/journal/apic_v3_screening_mci_ad/s1/seed43/nacc_to_adni/apic_v3_x/diagnostics

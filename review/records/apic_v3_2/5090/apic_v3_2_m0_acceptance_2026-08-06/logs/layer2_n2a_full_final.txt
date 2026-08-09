@@ -1,1 +1,0 @@
-Wrote 1322 sample diagnostics to /zjs/AD_Project/dual_shift_github/outputs/journal/apic_v3_2_m0_failure_diagnostics/checkpoint/seed42_nacc_to_adni
