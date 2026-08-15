@@ -1,9 +1,21 @@
 # Frequency-Guided UDA Experiment Plan
 
-Version: 1.1
+Version: 1.2
 
 Status: preregistered execution plan. This document does not report a new
 performance result.
+
+## Revision 1.2: ADNI 3T Clarification
+
+This protocol intentionally uses the frozen `ADNI_1p5T` and `NACC_3T`
+manifests only. It does not request, construct, or reintroduce an ADNI 3T
+manifest.
+
+`ADNI 1.5T -> NACC 3T` is the sole primary direction. `NACC 3T -> ADNI
+1.5T`, if later run with the same fixed manifests, is an explicitly separate
+unsupported-protocol stress test. Its result cannot alter the primary model,
+the primary frequency prior, a hyperparameter, or the primary GO/NO-GO
+decision.
 
 ## 1. Question And Claim Boundary
 
@@ -23,7 +35,8 @@ cohort, site, acquisition, preprocessing, and biology remain confounded.
 
 ## 2. Fixed Data Contract
 
-For each direction and seed, construct the following sets before model fitting:
+For the primary `ADNI 1.5T -> NACC 3T` direction and each seed, construct the
+following sets before model fitting:
 
 | Set | Content | May use labels? | May influence checkpoint/configuration? |
 |---|---|---:|---:|
@@ -36,10 +49,14 @@ For each direction and seed, construct the following sets before model fitting:
 - For the frequency prior, retain only the earliest valid visit per subject;
   break ties by folder/path. This prevents repeat scans from changing the
   source/target spectral population.
-- The primary ADNI-to-NACC route uses the NACC 3T target cohort. For the
-  NACC-to-ADNI primary route, prepare an ADNI common-support 3T manifest before
-  the `T_adapt/T_test` split. ADNI 1.5T is an explicitly separate unsupported
-  protocol stress test and must not select a model or frequency prior.
+- The sole primary route is ADNI 1.5T to NACC 3T, using the existing
+  `ADNI_1p5T_scan_filtered_manifest.csv` and
+  `NACC_3T_scan_filtered_manifest.csv`.
+- Do not construct or request an ADNI 3T/common-support manifest for this
+  experiment; ADNI 3T is excluded by the fixed scan-filtered protocol.
+- `NACC 3T -> ADNI 1.5T` may be reported only as a separately labelled
+  unsupported-protocol stress test. It uses the existing ADNI 1.5T manifest
+  and does not affect any primary selection or decision rule.
 - Preserve the scan-filtered task mapping, preprocessing, subject split, input
   shape, ResNet10 `layers=[1,1,1,1]`, source-validation selector, and collapse
   guard from the current ResNet10 reports.
@@ -96,9 +113,9 @@ after reading `T_test` results.
 
 ## 5. Execution Order
 
-For each fixed direction/seed, use dedicated output directories and resolve
-the YAML paths before running. Do not reuse one direction's prior, split, or
-checkpoint in the other direction.
+For each primary seed, use dedicated output directories and resolve the YAML
+paths before running. Set `<DIRECTION>` to `ADNI_to_NACC`. Do not reuse a
+prior, split, or checkpoint in a separately run stress-test direction.
 
 1. Train the source-only CAPM preparation checkpoint and retain its split. It
    is the common initialization for C0-C4 and supplies the prior features:
@@ -129,7 +146,7 @@ checkpoint in the other direction.
 ```
 
 3. Set `frequency_uda.source_split_manifest`, `base_checkpoint`,
-`prior_path`, and `target_split_manifest` in that direction/seed's resolved
+`prior_path`, and `target_split_manifest` in that primary direction/seed's resolved
 YAML. The trainer verifies the source split, target split, prior, and baseline
 checkpoint hashes before starting a frequency-gate variant.
 
@@ -144,8 +161,9 @@ checkpoint hashes before starting a frequency-gate variant.
   --device cuda
 ```
 
-Use seeds `43` and `44`. The two directions are independent experiments; do
-not average them into a single primary effect.
+Use seeds `43` and `44` for the primary direction. A later
+`NACC_to_ADNI` run, if needed, must use separate outputs and be labelled
+unsupported-protocol stress only; do not average it with the primary result.
 
 ## 6. Required Artifacts
 
@@ -176,7 +194,8 @@ the same `T_test` rows. Report individual seeds before their mean.
 The frequency-guided branch is eligible for the next model-development phase
 only when all of the following hold:
 
-1. C4 improves target BA over C0 in both seeds for the predeclared direction.
+1. C4 improves target BA over C0 in both seeds for the primary
+   `ADNI_to_NACC` direction.
 2. C4 is not worse than C1 and C2 in either seed, and has a positive mean
    contrast against both controls.
 3. Source validation passes the existing collapse guard, and the final audit
@@ -189,3 +208,6 @@ target-spectrum guidance. If C2 or C3 matches C4, the conclusion is a bounded
 spectral-gate effect, not evidence that the learned domain-frequency ordering
 is essential. If no condition is met, retain the result as a negative UDA
 experiment and do not add SoftRegion or a second new mechanism.
+
+An optional `NACC_to_ADNI` result cannot satisfy, weaken, or overturn these
+primary decision rules; it is reported only as out-of-support stress evidence.

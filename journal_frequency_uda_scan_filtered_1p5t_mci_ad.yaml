@@ -1,17 +1,19 @@
-# Frequency-guided UDA template. Resolve the two paths separately for each
-# direction/seed after the frozen source original_capm preparation run.
+# Frequency-guided UDA primary template. It uses the fixed ADNI 1.5T and NACC
+# 3T manifests only; do not construct or request an ADNI 3T manifest.
 preprocessing_version: skullstrip+n4+mni+crop+normalize
 seed: 43
 split_seed: 42
 output_root: outputs/journal/frequency_uda_scan_filtered_mci_ad
 claim:
   protocol: scan_filtered_frequency_uda_mci_ad
-  protocol_revision: 2
+  protocol_revision: 3
   primary_metric: balanced_accuracy
   split_seed: 42
   exclude_before_split: true
   task_pair: MCI_vs_AD
   target_adaptation: unlabeled_subject_disjoint
+  primary_direction: ADNI_to_NACC
+  unsupported_stress_direction: NACC_to_ADNI
 scan_filtered_protocol:
   enabled: true
   version: scan_filtered_v1_2026-08-08
@@ -72,4 +74,6 @@ evaluation: {bootstrap_samples: 200, aggregate: subject_mean, cluster_by_subject
 # C0, C1, C2, C3, and C4 are executed only after original_capm has been frozen and the
 # label-free prior has been written. Keep target-test labels blind until final evaluation.
 variants: [frequency_uda_baseline, frequency_uda_env_dro, frequency_uda_uniform, frequency_uda_permuted, frequency_uda]
-study: {directions: [ADNI_to_NACC, NACC_to_ADNI], seeds: [43, 44]}
+# The automatic study is the sole primary direction. Run NACC_to_ADNI only by
+# explicit command in a separate output directory and report it as unsupported stress.
+study: {directions: [ADNI_to_NACC], seeds: [43, 44]}
