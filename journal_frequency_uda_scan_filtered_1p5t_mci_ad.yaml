@@ -1,0 +1,75 @@
+# Frequency-guided UDA template. Resolve the two paths separately for each
+# direction/seed after the frozen source original_capm preparation run.
+preprocessing_version: skullstrip+n4+mni+crop+normalize
+seed: 43
+split_seed: 42
+output_root: outputs/journal/frequency_uda_scan_filtered_mci_ad
+claim:
+  protocol: scan_filtered_frequency_uda_mci_ad
+  protocol_revision: 2
+  primary_metric: balanced_accuracy
+  split_seed: 42
+  exclude_before_split: true
+  task_pair: MCI_vs_AD
+  target_adaptation: unlabeled_subject_disjoint
+scan_filtered_protocol:
+  enabled: true
+  version: scan_filtered_v1_2026-08-08
+  root: ./scan_manifests_filtered
+  files: {ADNI: ADNI_1p5T_scan_filtered_manifest.csv, NACC: NACC_3T_scan_filtered_manifest.csv}
+  expose_acquisition: false
+task: {mode: binary, label_mapping: {2: 0, 3: 1}, class_names: {0: MCI, 1: AD}, positive_class: AD}
+metadata_match: {max_days: 90, require_diagnosis_match: true, on_diagnosis_mismatch: exclude}
+cohorts:
+  ADNI:
+    image_root: ./datasets/ADNI
+    metadata_csv: ./metadata/ADNI.csv
+    image_filename: MRI_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping: {1: male, 2: female, M: male, F: female}
+    columns: {id: [PTID, RID, subject_id], date: [EXAMDATE, VISDATE, date], sex: [PTGENDER, SEX, sex, gender], age: [AGE, age, AGE_YEARS], education: [PTEDUCAT, EDUCATION, education, EDU, EDUC], diagnosis: [DIAGNOSIS, DX, label]}
+  NACC:
+    image_root: ./datasets/NACC
+    metadata_csv: ./metadata/NACC.csv
+    image_filename: MRI_N4_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping: {1: male, 2: female, M: male, F: female}
+    columns: {id: [NACCID, PTID, subject_id], date: [date, EXAMDATE, VISDATE], sex: [SEX, sex, PTGENDER, gender], age: [AGE, age, AGE_YEARS], education: [EDUCATION, education, EDUC, EDU, EDUCATION_YEARS], diagnosis: [label, DIAGNOSIS, DX]}
+training: {epochs: 50, batch_size: 4, eval_batch_size: 2, num_workers: 0, train_ratio: 0.6, val_ratio: 0.2, test_ratio: 0.2, learning_rate: 0.0001, weight_decay: 0.0001, class_weighted_ce: true}
+model: {name: scale_table_ablation}
+scale_table_ablation:
+  preset: layer5_pixel
+  input_shape: [160, 196, 160]
+  # Match the ResNet10 frequency reports: one BasicBlock per backbone stage.
+  layers: [1, 1, 1, 1]
+  spatial_shape: [4, 4, 4]
+  transformer_dim: 128
+  num_heads: 4
+  transformer_dropout: 0.1
+  classifier_dropout: 0.3
+  gate_init: 0.95
+frequency_uda:
+  # Build from source_train and T_adapt only with experiments.frequency_uda.
+  # T_test must not be used to construct this JSON or tune its values.
+  prior_path: outputs/frequency_uda_prepare/REPLACE_DIRECTION/seed_43/frequency_prior.json
+  base_checkpoint: outputs/frequency_uda_prepare/REPLACE_DIRECTION/seed_43/original_capm/best_checkpoint.pt
+  source_split_manifest: outputs/frequency_uda_prepare/REPLACE_DIRECTION/seed_43/source_split_manifest.json
+  target_split_manifest: outputs/frequency_uda_prepare/REPLACE_DIRECTION/seed_43/target_adapt_test_split.json
+  prior_seed: 43
+  target_adaptation_fraction: 0.5
+  target_labels_read: false
+  target_metrics_read: false
+  max_strength: 0.5
+  init_strength: 0.05
+  identity_weight: 0.01
+  lowpass_kernel: 3
+  blur_sigma: 0.8
+environments: {mode: age_sex, n_age_bins: 3, n_education_bins: 3, min_group_size: 8, min_per_class: 2, scale_continuous: true}
+groupdro: {step_size: 0.01}
+loss: {lambda_tv: 0.01, lambda_sparse: 0.001}
+dual_shift: {collapse_guard: {enabled: true, min_sensitivity: 0.15, min_specificity: 0.15, min_class_recall: 0.15}, subject_balanced_sampler: true}
+evaluation: {bootstrap_samples: 200, aggregate: subject_mean, cluster_by_subject: true, label_conflict: earliest_visit}
+# C0, C1, C2, C3, and C4 are executed only after original_capm has been frozen and the
+# label-free prior has been written. Keep target-test labels blind until final evaluation.
+variants: [frequency_uda_baseline, frequency_uda_env_dro, frequency_uda_uniform, frequency_uda_permuted, frequency_uda]
+study: {directions: [ADNI_to_NACC, NACC_to_ADNI], seeds: [43, 44]}

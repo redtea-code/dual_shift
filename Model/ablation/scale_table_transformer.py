@@ -561,6 +561,30 @@ class ScaleTableInteractionAblation3D(nn.Module):
         self.fc = nn.Linear(512, num_classes)
         self._init_non_calibrator_weights()
 
+    def extract_features(
+        self,
+        image: torch.Tensor,
+        table: torch.Tensor | None = None,
+        *,
+        force_capm: bool = False,
+        return_audit: bool = False,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        """Return the selected spatial feature map before global pooling."""
+        features = self.maxpool(self.relu(self.bn1(self.conv1(image))))
+        audit: dict[str, torch.Tensor] = {}
+        for name in ("layer1", "layer2", "layer3", "layer4"):
+            features = getattr(self, name)(features)
+            if name == self.preset.selected_stage:
+                features, audit = self._apply_calibrator(
+                    features, table, force_capm, return_audit
+                )
+        if self.preset.selected_stage == "layer5":
+            features = self.layer5(features)
+            features, audit = self._apply_calibrator(
+                features, table, force_capm, return_audit
+            )
+        return features, audit
+
     def _make_layer(
         self, block: type[BasicBlock], planes: int, blocks: int, stride: int
     ) -> nn.Sequential:
@@ -640,19 +664,9 @@ class ScaleTableInteractionAblation3D(nn.Module):
         force_capm: bool = False,
         return_audit: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        features = self.maxpool(self.relu(self.bn1(self.conv1(image))))
-        audit: dict[str, torch.Tensor] = {}
-        for name in ("layer1", "layer2", "layer3", "layer4"):
-            features = getattr(self, name)(features)
-            if name == self.preset.selected_stage:
-                features, audit = self._apply_calibrator(
-                    features, table, force_capm, return_audit
-                )
-        if self.preset.selected_stage == "layer5":
-            features = self.layer5(features)
-            features, audit = self._apply_calibrator(
-                features, table, force_capm, return_audit
-            )
+        features, audit = self.extract_features(
+            image, table, force_capm=force_capm, return_audit=return_audit
+        )
         logits = self.fc(self.dropout(self.pool(features).flatten(1)))
         if return_audit:
             return logits, audit

@@ -9,6 +9,14 @@ from .scale_table_transformer import (
     demographic_var_specs,
 )
 
+from .frequency_uda import (
+    DomainGuidedFrequencyGate3D,
+    FeatureSpectrumAccumulator,
+    FrequencyGuidedScaleTable3D,
+    FrequencyPrior,
+    build_frequency_guided_model,
+)
+
 __all__ = [
     "ABLATION_PRESETS",
     "OriginalPatchwiseCAPM",
@@ -16,4 +24,10 @@ __all__ = [
     "TransformerCalibratedCAPM",
     "build_scale_table_ablation",
     "demographic_var_specs",
+
+    "DomainGuidedFrequencyGate3D",
+    "FeatureSpectrumAccumulator",
+    "FrequencyGuidedScaleTable3D",
+    "FrequencyPrior",
+    "build_frequency_guided_model",
 ]

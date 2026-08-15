@@ -60,6 +60,7 @@ from training.dual_shift_loop import (
     run_dual_shift_epoch,
 )
 from training.group_dro import GroupDRO
+from training.frequency_environments import FrequencyEnvironmentAugment3D
 from training.journal_metrics import (
     bootstrap_confidence_intervals,
     compute_journal_metrics,
@@ -136,6 +137,13 @@ VARIANT_STAGES = {
     "original_capm": "scale_table_ablation",
     "transformer_self": "scale_table_ablation",
     "transformer_cross": "scale_table_ablation",
+
+    # Source-initialized controls and label-free target-adaptive frequency models.
+    "frequency_uda_baseline": "frequency_uda",
+    "frequency_uda_env_dro": "frequency_uda",
+    "frequency_uda": "frequency_uda",
+    "frequency_uda_uniform": "frequency_uda",
+    "frequency_uda_permuted": "frequency_uda",
 }
 
 # Display names: ce_only with class_weighted_ce is weighted CE, not plain CE.
@@ -175,6 +183,12 @@ VARIANT_DISPLAY = {
     "original_capm": "original_capm",
     "transformer_self": "transformer_self",
     "transformer_cross": "transformer_cross",
+
+    "frequency_uda_baseline": "frequency_uda_baseline",
+    "frequency_uda_env_dro": "frequency_uda_env_dro",
+    "frequency_uda": "frequency_uda",
+    "frequency_uda_uniform": "frequency_uda_uniform",
+    "frequency_uda_permuted": "frequency_uda_permuted",
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
@@ -189,6 +203,27 @@ SCALE_TABLE_VARIANTS = frozenset(
         "transformer_self",
         "transformer_cross",
     }
+)
+
+FREQUENCY_UDA_VARIANTS = frozenset(
+    {
+        "frequency_uda_baseline",
+        "frequency_uda_env_dro",
+        "frequency_uda",
+        "frequency_uda_uniform",
+        "frequency_uda_permuted",
+    }
+)
+FREQUENCY_ENVIRONMENT_VARIANTS = frozenset(
+    {
+        "frequency_uda_env_dro",
+        "frequency_uda",
+        "frequency_uda_uniform",
+        "frequency_uda_permuted",
+    }
+)
+FREQUENCY_GATE_VARIANTS = frozenset(
+    {"frequency_uda", "frequency_uda_uniform", "frequency_uda_permuted"}
 )
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
 DUAL_SHIFT_VARIANTS = frozenset(
@@ -587,6 +622,86 @@ def _make_model(config, num_classes, variant):
             input_shape=input_shape,
         )
 
+
+    if variant in FREQUENCY_UDA_VARIANTS:
+        from Model.ablation import build_frequency_guided_model, build_scale_table_ablation
+
+        frequency_cfg = config.get("frequency_uda") or {}
+        base_checkpoint = frequency_cfg.get("base_checkpoint")
+        if not base_checkpoint:
+            raise ValueError(
+                "frequency_uda.base_checkpoint is required; it must be a frozen source original_capm checkpoint"
+            )
+        ablation_cfg = config.get("scale_table_ablation") or {}
+        input_shape = tuple(
+            int(value)
+            for value in ablation_cfg.get(
+                "input_shape",
+                config.get("training", {}).get("image_shape", (160, 196, 160)),
+            )
+        )
+        model_kwargs = {
+            "preset": "layer5_pixel",
+            "num_classes": num_classes,
+            "layers": tuple(int(value) for value in ablation_cfg.get("layers", (2, 2, 2, 2))),
+            "spatial_shape": tuple(
+                int(value) for value in ablation_cfg.get("spatial_shape", (4, 4, 4))
+            ),
+            "transformer_dim": int(ablation_cfg.get("transformer_dim", 128)),
+            "num_heads": int(ablation_cfg.get("num_heads", 4)),
+            "transformer_dropout": float(ablation_cfg.get("transformer_dropout", 0.1)),
+            "classifier_dropout": float(ablation_cfg.get("classifier_dropout", 0.3)),
+            "gate_init": float(ablation_cfg.get("gate_init", 0.95)),
+            "input_shape": input_shape,
+        }
+        if variant in {"frequency_uda_baseline", "frequency_uda_env_dro"}:
+            model = build_scale_table_ablation(
+                interaction="original_capm", **model_kwargs
+            )
+            payload = torch.load(base_checkpoint, map_location="cpu", weights_only=False)
+            model.load_state_dict(payload.get("model_state", payload), strict=True)
+            return model
+        prior_path = frequency_cfg.get("prior_path")
+        if not prior_path:
+            raise ValueError("frequency_uda.prior_path is required for a frequency-gate UDA variant")
+        mode = {
+            "frequency_uda": "domain_guided",
+            "frequency_uda_uniform": "uniform",
+            "frequency_uda_permuted": "permuted",
+        }[variant]
+        model = build_frequency_guided_model(
+            prior_path=prior_path,
+            prior_mode=mode,
+            prior_seed=int(frequency_cfg.get("prior_seed", config.get("seed", 0))),
+            max_strength=float(frequency_cfg.get("max_strength", 0.5)),
+            init_strength=float(frequency_cfg.get("init_strength", 0.05)),
+            **model_kwargs,
+        )
+        split_path = frequency_cfg.get("target_split_manifest")
+        if split_path:
+            expected_sha = hashlib.sha256(Path(str(split_path)).read_bytes()).hexdigest()
+            prior_sha = model.frequency_prior_metadata.get("target_split_sha256")
+            if prior_sha != expected_sha:
+                raise ValueError(
+                    "frequency prior does not match frequency_uda.target_split_manifest; rebuild the label-free prior"
+                )
+            if model.frequency_prior_metadata.get("target_labels_read") is not False:
+                raise ValueError("frequency prior does not certify target_labels_read=false")
+            if model.frequency_prior_metadata.get("target_metrics_read") is not False:
+                raise ValueError("frequency prior does not certify target_metrics_read=false")
+        source_split_path = frequency_cfg.get("source_split_manifest")
+        if source_split_path:
+            expected_source_sha = hashlib.sha256(Path(str(source_split_path)).read_bytes()).hexdigest()
+            if model.frequency_prior_metadata.get("source_split_manifest_sha256") != expected_source_sha:
+                raise ValueError(
+                    "frequency prior does not match frequency_uda.source_split_manifest; rebuild the label-free prior"
+                )
+        expected_checkpoint_sha = hashlib.sha256(Path(str(base_checkpoint)).read_bytes()).hexdigest()
+        if model.frequency_prior_metadata.get("source_checkpoint_sha256") not in (None, expected_checkpoint_sha):
+            raise ValueError("frequency prior was built from a different source original_capm checkpoint")
+        model.load_source_baseline(base_checkpoint)
+        return model
+
     if variant in DUAL_SHIFT_VARIANTS:
         ds = config.get("dual_shift") or {}
         model_config = config["model"]
@@ -722,6 +837,9 @@ def _logits(model, batch, spatial, variant=None):
         # image_only ignores the table argument; every table-aware ablation
         # receives the same frozen cov3 tensor in the documented order.
         return model(image, covariates)
+
+    if variant in FREQUENCY_UDA_VARIANTS:
+        return model(image, covariates)
     if variant in DICTIONARY_VARIANTS:
         return model(image, covariates)
     if variant in METADATA_VARIANTS:
@@ -746,6 +864,8 @@ def _run_epoch(
     spatial=False,
     class_weights=None,
     variant=None,
+    frequency_augmenter=None,
+    frequency_identity_weight=0.0,
 ):
     training = optimizer is not None
     model.train(training)
@@ -753,6 +873,8 @@ def _run_epoch(
     count = 0
     logits_all, labels_all, env_all, subjects, folders = [], [], [], [], []
     field_strengths = []
+    frequency_strengths = []
+    frequency_identity_losses = []
     weight_tensor = (
         None
         if class_weights is None
@@ -765,6 +887,9 @@ def _run_epoch(
             if key != "acquisition"
         }
         acquisitions = raw_batch.get("acquisition")
+        dro_environment_ids = batch["environment_id"]
+        if training and frequency_augmenter is not None:
+            batch["image"], dro_environment_ids = frequency_augmenter(batch["image"])
         with torch.set_grad_enabled(training):
             if variant in DUAL_SHIFT_VARIANTS:
                 raise RuntimeError(
@@ -799,7 +924,7 @@ def _run_epoch(
                     logits, batch["label"], reduction="none", weight=weight_tensor
                 )
                 group_losses, present = dro.compute_group_losses(
-                    sample, batch["environment_id"]
+                    sample, dro_environment_ids
                 )
                 if training:
                     dro.update(group_losses, present)
@@ -832,6 +957,13 @@ def _run_epoch(
                     ages,
                     loss_weights=preset_cfg["loss_weights"],
                 )
+
+            if variant in FREQUENCY_GATE_VARIANTS and training:
+                regularizers = model.get_regularization_losses()
+                identity = regularizers["frequency_identity"]
+                train_loss = train_loss + float(frequency_identity_weight) * identity
+                frequency_identity_losses.append(float(identity.detach()))
+                frequency_strengths.append(float(model.frequency_gate.effective_strength.detach()))
             if spatial and training:
                 regularizers = model.get_regularization_losses()
                 train_loss = (
@@ -910,6 +1042,12 @@ def _run_epoch(
         "folders": folders,
         "field_strengths": field_strengths,
         "metrics": metrics,
+        "frequency_identity_loss": (
+            float(np.mean(frequency_identity_losses)) if frequency_identity_losses else None
+        ),
+        "frequency_effective_strength": (
+            float(np.mean(frequency_strengths)) if frequency_strengths else None
+        ),
     }
 
 
@@ -1137,10 +1275,13 @@ def _train_variant(
     external = variant in EXTERNAL_FUSION_VARIANTS
     patch_gamma = variant in PATCH_GAMMA_VARIANTS
     scale_table = variant in SCALE_TABLE_VARIANTS
+    frequency_uda = variant in FREQUENCY_UDA_VARIANTS
+    frequency_environments = variant in FREQUENCY_ENVIRONMENT_VARIANTS
     dictionary = variant in DICTIONARY_VARIANTS
     dual_shift = variant in DUAL_SHIFT_VARIANTS
     metadata = variant in METADATA_VARIANTS
     model = _make_model(config, num_classes, variant).to(device)
+
     if dictionary:
         from Model.dictionary.journal_dual_dict import resolve_dictionary_preset
 
@@ -1182,7 +1323,7 @@ def _train_variant(
                 "weight_decay", config["training"]["weight_decay"]
             )
         )
-    elif spatial or external or patch_gamma or scale_table:
+    elif spatial or external or patch_gamma or scale_table or frequency_uda:
         parameters = model.parameters()
         lr = float(config["training"]["learning_rate"])
         weight_decay = float(config["training"]["weight_decay"])
@@ -1197,9 +1338,19 @@ def _train_variant(
         lr=lr,
         weight_decay=weight_decay,
     )
+    frequency_cfg = config.get("frequency_uda") or {}
+    frequency_augmenter = (
+        FrequencyEnvironmentAugment3D(
+            lowpass_kernel=int(frequency_cfg.get("lowpass_kernel", 3)),
+            blur_sigma=float(frequency_cfg.get("blur_sigma", 0.8)),
+        ).to(device)
+        if frequency_environments
+        else None
+    )
+    dro_groups = frequency_augmenter.num_environments if frequency_augmenter is not None else num_groups
     dro = (
-        GroupDRO(num_groups, step_size=float(config["groupdro"]["step_size"])).to(device)
-        if use_dro
+        GroupDRO(dro_groups, step_size=float(config["groupdro"]["step_size"])).to(device)
+        if use_dro or frequency_environments
         else None
     )
     variant_dir = Path(output_dir) / variant
@@ -1258,6 +1409,8 @@ def _train_variant(
                 spatial=spatial,
                 class_weights=class_weights,
                 variant=variant,
+                frequency_augmenter=frequency_augmenter,
+                frequency_identity_weight=float(frequency_cfg.get("identity_weight", 0.01)),
             )
             val_result = _run_epoch(
                 model,
@@ -1296,6 +1449,8 @@ def _train_variant(
                 "style_memory_total_assignments": train_result.get(
                     "style_memory_total_assignments"
                 ),
+                "frequency_identity_loss": train_result.get("frequency_identity_loss"),
+                "frequency_effective_strength": train_result.get("frequency_effective_strength"),
                 "clean_ce": train_result.get("clean_ce"),
                 "shift_ce": train_result.get("shift_ce"),
                 "js": train_result.get("js"),
@@ -1520,6 +1675,21 @@ def _train_variant(
             "scale_table_ablation": (
                 model.experiment_signature() if scale_table else None
             ),
+
+            "frequency_uda": (
+                {
+                    **model.experiment_signature(),
+                    "frequency_control": (
+                        "source_initialized_no_frequency_environment"
+                        if variant == "frequency_uda_baseline"
+                        else "env_dro_only"
+                        if variant == "frequency_uda_env_dro"
+                        else "frequency_gate"
+                    ),
+                }
+                if frequency_uda
+                else None
+            ),
             "group_weights": None if dro is None else dro.group_weights.cpu().tolist(),
             "best_checkpoint_epoch": int(checkpoint["epoch"]),
             "best_checkpoint_selection": checkpoint.get("selection"),
@@ -1695,6 +1865,13 @@ def _paired_variant_comparisons(output_dir, variants, config):
         "ce_xd": [
             variant for variant in variants if variant in APIC_V3_SECONDARY_VARIANTS
         ],
+        # Frequency UDA retains original CAPM. The source-initialized C0 control
+        # is its claim-facing baseline, so all variants share the same warm start.
+        "frequency_uda_baseline": [
+            variant
+            for variant in variants
+            if variant in FREQUENCY_UDA_VARIANTS
+        ],
     }
     eval_cfg = config.get("evaluation", {})
     comparisons = {}
@@ -1805,6 +1982,48 @@ def _load_frozen_split(source, manifest_path: str):
     return train_indices, val_indices, test_indices, manifest
 
 
+def _load_frequency_uda_target_test_indices(
+    target,
+    candidate_indices,
+    split_path: str,
+    *,
+    direction: str,
+):
+    """Limit UDA evaluation to a target-test split that was never adapted on."""
+    from experiments.frequency_uda import TARGET_SPLIT_SCHEMA
+
+    with open(split_path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if payload.get("schema") != TARGET_SPLIT_SCHEMA:
+        raise ValueError("Unsupported frequency UDA target split schema")
+    if payload.get("direction") != direction:
+        raise ValueError("frequency UDA target split direction does not match the run")
+    if payload.get("target_labels_read") is not False:
+        raise ValueError("frequency UDA target split does not certify target_labels_read=false")
+    if payload.get("target_metrics_read") is not False:
+        raise ValueError("frequency UDA target split does not certify target_metrics_read=false")
+    adapt_subjects = set(map(str, payload.get("target_adapt_subjects", [])))
+    test_subjects = set(map(str, payload.get("target_test_subjects", [])))
+    if not adapt_subjects or not test_subjects or adapt_subjects.intersection(test_subjects):
+        raise ValueError("frequency UDA target split must contain disjoint non-empty adapt/test subjects")
+    candidate_indices = np.asarray(candidate_indices, dtype=np.int64)
+    candidate_subjects = set(map(str, target.subject_ids[candidate_indices].tolist()))
+    if not test_subjects.issubset(candidate_subjects):
+        missing = sorted(test_subjects.difference(candidate_subjects))
+        raise ValueError(f"frequency UDA target-test subjects are unavailable: {missing[:5]}")
+    test_indices = np.asarray(
+        [
+            int(index)
+            for index in candidate_indices.tolist()
+            if str(target.subject_ids[int(index)]) in test_subjects
+        ],
+        dtype=np.int64,
+    )
+    if not len(test_indices):
+        raise ValueError("frequency UDA target-test split is empty after filtering")
+    return test_indices, payload
+
+
 def evaluate_stage_a_gate(ce_metrics: dict, groupdro_metrics: dict, gate_cfg: dict) -> dict:
     """GroupDRO vs weighted/unweighted CE gate on subject-level target metrics."""
     ce = ce_metrics["target"]["metrics"]
@@ -1880,6 +2099,22 @@ def run(
     source_name, target_name = direction.split("_to_")
     source = _dataset(config, source_name)
     target = None if source_only else _dataset(config, target_name)
+    requested = [
+        VARIANT_ALIASES.get(str(item), str(item))
+        for item in list(variants or config.get("variants") or [])
+    ]
+    frequency_uda_requested = any(item in FREQUENCY_UDA_VARIANTS for item in requested)
+    if frequency_uda_requested and target is None:
+        raise ValueError("frequency UDA requires an external target dataset")
+    if frequency_uda_requested:
+        configured_source_split = (config.get("frequency_uda") or {}).get("source_split_manifest")
+        if not configured_source_split:
+            raise ValueError(
+                "frequency_uda.source_split_manifest is required to reproduce the source baseline split"
+            )
+        if split_manifest is not None and Path(str(split_manifest)).resolve() != Path(str(configured_source_split)).resolve():
+            raise ValueError("run split_manifest must match frequency_uda.source_split_manifest")
+        split_manifest = str(configured_source_split)
     train_cfg = config["training"]
     train_ratio = float(train_cfg.get("train_ratio", 0.6))
     val_ratio = float(train_cfg.get("val_ratio", 0.2))
@@ -1997,6 +2232,19 @@ def run(
         e1_target_indices = all_target_indices
     else:
         e1_target_indices = np.asarray([], dtype=int)
+    frequency_target_split = None
+    if frequency_uda_requested and target is not None:
+        split_path = (config.get("frequency_uda") or {}).get("target_split_manifest")
+        if not split_path:
+            raise ValueError(
+                "frequency_uda.target_split_manifest is required to keep T_adapt disjoint from T_test"
+            )
+        e1_target_indices, frequency_target_split = _load_frequency_uda_target_test_indices(
+            target,
+            e1_target_indices,
+            str(split_path),
+            direction=direction,
+        )
     source_used_subjects = (
         set(map(str, source.subject_ids[train_indices].tolist()))
         | set(map(str, source.subject_ids[val_indices].tolist()))
@@ -2023,10 +2271,6 @@ def run(
     if batch_size < 2:
         raise ValueError("training.batch_size must be >= 2 for BatchNorm stability")
     common = {"num_workers": int(config["training"]["num_workers"])}
-    requested = [
-        VARIANT_ALIASES.get(str(item), str(item))
-        for item in list(variants or config.get("variants") or [])
-    ]
     use_subject_balance = bool(
         (config.get("dual_shift") or {}).get("subject_balanced_sampler", True)
     ) and any(v in DUAL_SHIFT_VARIANTS or v == "ce_only" for v in requested)
@@ -2107,6 +2351,16 @@ def run(
     manifest["frozen_split_manifest"] = split_manifest
     manifest["e1_target_subjects"] = sorted(e1_target_subjects)
     manifest["source_only"] = bool(source_only)
+    if frequency_target_split is not None:
+        split_path = Path(str((config.get("frequency_uda") or {})["target_split_manifest"]))
+        manifest["frequency_uda_target_split"] = {
+            "path": str(split_path),
+            "sha256": hashlib.sha256(split_path.read_bytes()).hexdigest(),
+            "target_adapt_subject_digest": frequency_target_split["target_adapt_subject_digest"],
+            "target_test_subject_digest": frequency_target_split["target_test_subject_digest"],
+            "target_labels_read": bool(frequency_target_split.get("target_labels_read", True)),
+            "target_metrics_read": bool(frequency_target_split.get("target_metrics_read", True)),
+        }
     manifest["e3_paired_subjects_by_cohort"] = {
         source_name: sorted(
             set(map(str, source.subject_ids[source_e3_paired_indices].tolist()))
