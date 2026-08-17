@@ -10,7 +10,27 @@ experiment stack defined by Plan 34.
 - `docs/SCAN_FILTERED_MULTI_MACHINE_EXPERIMENT_PLAN.md`
 - `journal_dual_shift_scan_filtered_1p5t_mci_ad.yaml`
 - `journal_scale_table_scan_filtered_1p5t_mci_ad.yaml`
+- `fmm_baseline_scan_filtered_1p5t_mci_ad.yaml`
 - `experiments/train_journal.py`
+
+## FMM comparison baseline
+
+The independent raw-volume FMM runner is `experiments/train_fmm_baseline.py`.
+It keeps target adaptation label-blind, selects the checkpoint on source
+validation, and writes an audit record alongside metrics and predictions.
+
+Run the five registered controls by changing `--variant` among `b0_ref`,
+`b1_fmm`, `b1a_no_source_fft`, `b1b_no_attention`, and `b1c_no_grl`. Before
+using the scan-filtered data, validate the complete path with:
+
+```powershell
+D:\Anaconda\envs\segment\python.exe experiments/train_fmm_baseline.py `
+  --config_path fmm_baseline_scan_filtered_1p5t_mci_ad.yaml `
+  --direction ADNI_to_NACC --variant b1_fmm --smoke-test `
+  --output-dir outputs/fmm_smoke_b1
+```
+
+The smoke command is an implementation check, not a performance result.
 
 Historic models, protocols, result archives, and legacy experiment scripts are
 preserved on `archive/pre-plan34-cleanup-20260809`.

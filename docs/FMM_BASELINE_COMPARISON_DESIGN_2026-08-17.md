@@ -2,7 +2,7 @@
 
 ## 1. Status And Scope
 
-Status: design only. No FMM code, configuration, checkpoint, metric, or target evaluation has been produced in this worktree.
+Status: implementation complete for the independent runner and smoke path. No real-data FMM checkpoint or performance claim has been produced in this worktree.
 
 This is an independent comparison line for Frequency Mixup Manipulation (FMM), not a modification of the existing C0-C4 frequency-prior route. The question is:
 
@@ -10,7 +10,7 @@ This is an independent comparison line for Frequency Mixup Manipulation (FMM), n
 
 Primary source: Shin et al., Frequency Mixup Manipulation Based Unsupervised Domain Adaptation for Brain Disease Identification, ACPR 2023, DOI 10.1007/978-3-031-47665-5_11. Local PDF: D:\1\定方向\2026AD\域适应\978-3-031-47665-5_11.pdf.
 
-The authors state that code is available at https://github.com/ku-milab/FMM. It has not yet been cloned or treated as an executable dependency. Its commit hash and license must be recorded before implementation.
+The authors state that code is available at https://github.com/ku-milab/FMM. The public checkout used for source comparison is commit `580625cee5bfc1474fe8700e530ade07ac5e9776`. It is a reference only: the checkout is incomplete for a clean run because the training scripts import files that are absent from the tree. The local implementation records this commit and does not import the repository at runtime.
 
 ## 2. Why FMM Is The First Baseline
 
@@ -94,7 +94,13 @@ B0-ref versus B1-fmm is the first required contrast. B2-capm versus B3-fmm-core-
 
 ## 6. Implementation Boundary
 
-Implement this as a new runner and model family, for example experiments/train_fmm_baseline.py and Model/ablation/fmm_baseline.py. Do not overload C4 frequency_uda configuration or reinterpret the layer4 gate as FMM.
+Implemented as a new runner and model family: `experiments/train_fmm_baseline.py`, `Model/ablation/fmm_baseline.py`, `training/fmm_frequency.py`, and `training/fmm_protocol.py`. The entry point is configured by `fmm_baseline_scan_filtered_1p5t_mci_ad.yaml`. It does not overload C4 frequency_uda configuration or reinterpret the layer4 gate as FMM.
+
+The ten-convolution encoder, 3D spatial gate, and two discriminator heads are
+ported independently. Two engineering differences are explicit: convolution
+padding keeps the configured MRI crop shape stable, and adaptive pooling
+replaces the reference hard-coded `128*2*3*2` flatten size. The default channel
+schedule and classifier hidden width remain those of the reference model.
 
 Each UDA step needs two independent loaders:
 
@@ -106,6 +112,8 @@ target-adapt loader -> image, domain membership only, subject ID
 No source and target subject are clinically paired. Batch pairing is an algorithmic sampling operation only; sampled subject IDs must be logged.
 
 The paper's ten convolutional layers, BatchNorm/ReLU blocks, even-layer downsampling, spatial attention, and two discriminators are ported before CAPM is introduced. If the author repository differs from the paper, record the source commit and behavior difference.
+
+The missing paper-level choices are registered in the YAML rather than tuned on T_test: intensity scale `[0.8, 1.2]`, noise standard deviation `0.05`, amplitude mixing interval `[0, 1]`, unit GRL/domain/attention coefficients, and a deterministic 50/50 target adaptation/holdout subject split. These settings make the experiment runnable, but do not convert it into an exact reproduction claim.
 
 ## 7. Pre-Implementation Unknowns
 
@@ -130,7 +138,13 @@ Before real-data training:
 5. GRL reverses, rather than merely scales, the encoder gradient.
 6. B1c-no-grl removes both discriminator losses with no unused-gradient side effects.
 
-Each run saves: Git commit, configuration and manifest hashes, subject digests, target-label/metric access flags, seed, selector history, branch losses, subject-level predictions, and raw spectral diagnostics. Report clean source validation, source test, and only the pre-registered exploratory T_test row.
+The implementation smoke path is exercised with:
+
+~~~
+D:\Anaconda\envs\segment\python.exe experiments/train_fmm_baseline.py --config_path fmm_baseline_scan_filtered_1p5t_mci_ad.yaml --direction ADNI_to_NACC --variant b1_fmm --smoke-test --output-dir outputs/fmm_smoke_b1
+~~~
+
+Each run saves: Git commit, upstream reference commit, configuration hash, subject digests, target-label/metric access flags, seed-derived selector history, branch losses, subject-level predictions, sampled target subject IDs, and raw spectral diagnostics. Report clean source validation, source test, and only the pre-registered exploratory T_test row.
 
 ## 9. Promotion Rule
 
