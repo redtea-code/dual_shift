@@ -24,6 +24,14 @@ from .frequency_mixstyle import (
     build_frequency_mixstyle_model,
 )
 
+from .raw_frequency_skip import (
+    RAW_SKIP_STAGES,
+    RawFrequencySkip3D,
+    RawFrequencySkipScaleTable3D,
+    build_raw_frequency_skip_model,
+    extract_raw_frequency_features,
+)
+
 __all__ = [
     "ABLATION_PRESETS",
     "OriginalPatchwiseCAPM",
@@ -42,4 +50,10 @@ __all__ = [
     "FrequencyMixStyle3D",
     "FrequencyMixStyleScaleTable3D",
     "build_frequency_mixstyle_model",
+
+    "RAW_SKIP_STAGES",
+    "RawFrequencySkip3D",
+    "RawFrequencySkipScaleTable3D",
+    "build_raw_frequency_skip_model",
+    "extract_raw_frequency_features",
 ]
