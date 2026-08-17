@@ -17,6 +17,13 @@ from .frequency_uda import (
     build_frequency_guided_model,
 )
 
+from .frequency_mixstyle import (
+    MIX_MODES,
+    FrequencyMixStyle3D,
+    FrequencyMixStyleScaleTable3D,
+    build_frequency_mixstyle_model,
+)
+
 __all__ = [
     "ABLATION_PRESETS",
     "OriginalPatchwiseCAPM",
@@ -30,4 +37,9 @@ __all__ = [
     "FrequencyGuidedScaleTable3D",
     "FrequencyPrior",
     "build_frequency_guided_model",
+
+    "MIX_MODES",
+    "FrequencyMixStyle3D",
+    "FrequencyMixStyleScaleTable3D",
+    "build_frequency_mixstyle_model",
 ]

@@ -144,6 +144,11 @@ VARIANT_STAGES = {
     "frequency_uda": "frequency_uda",
     "frequency_uda_uniform": "frequency_uda",
     "frequency_uda_permuted": "frequency_uda",
+
+    # Source-side Frequency MixStyle controls. These variants do not read a
+    # target prior or target labels/metrics.
+    "frequency_mixstyle_full": "frequency_mixstyle",
+    "frequency_mixstyle_bandwise": "frequency_mixstyle",
 }
 
 # Display names: ce_only with class_weighted_ce is weighted CE, not plain CE.
@@ -189,6 +194,8 @@ VARIANT_DISPLAY = {
     "frequency_uda": "frequency_uda",
     "frequency_uda_uniform": "frequency_uda_uniform",
     "frequency_uda_permuted": "frequency_uda_permuted",
+    "frequency_mixstyle_full": "frequency_mixstyle_full",
+    "frequency_mixstyle_bandwise": "frequency_mixstyle_bandwise",
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
@@ -224,6 +231,9 @@ FREQUENCY_ENVIRONMENT_VARIANTS = frozenset(
 )
 FREQUENCY_GATE_VARIANTS = frozenset(
     {"frequency_uda", "frequency_uda_uniform", "frequency_uda_permuted"}
+)
+FREQUENCY_MIXSTYLE_VARIANTS = frozenset(
+    {"frequency_mixstyle_full", "frequency_mixstyle_bandwise"}
 )
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
 DUAL_SHIFT_VARIANTS = frozenset(
@@ -623,6 +633,42 @@ def _make_model(config, num_classes, variant):
         )
 
 
+    if variant in FREQUENCY_MIXSTYLE_VARIANTS:
+        from Model.ablation import build_frequency_mixstyle_model
+
+        ablation_cfg = config.get("scale_table_ablation") or {}
+        mix_cfg = config.get("frequency_mixstyle") or {}
+        input_shape = tuple(
+            int(value)
+            for value in ablation_cfg.get(
+                "input_shape",
+                config.get("training", {}).get("image_shape", (160, 196, 160)),
+            )
+        )
+        mode = {
+            "frequency_mixstyle_full": "full_amplitude",
+            "frequency_mixstyle_bandwise": "bandwise_statistics",
+        }[variant]
+        return build_frequency_mixstyle_model(
+            mix_mode=mode,
+            preset="layer5_pixel",
+            mix_stage=str(mix_cfg.get("mix_stage", "layer3")),
+            probability=float(mix_cfg.get("probability", 0.5)),
+            alpha=float(mix_cfg.get("alpha", 0.1)),
+            band_edges=tuple(float(value) for value in mix_cfg.get("band_edges", (0.0, 0.15, 0.35))),
+            class_conditional=bool(mix_cfg.get("class_conditional", True)),
+            num_classes=num_classes,
+            layers=tuple(int(value) for value in ablation_cfg.get("layers", (2, 2, 2, 2))),
+            spatial_shape=tuple(int(value) for value in ablation_cfg.get("spatial_shape", (4, 4, 4))),
+            transformer_dim=int(ablation_cfg.get("transformer_dim", 128)),
+            num_heads=int(ablation_cfg.get("num_heads", 4)),
+            transformer_dropout=float(ablation_cfg.get("transformer_dropout", 0.1)),
+            classifier_dropout=float(ablation_cfg.get("classifier_dropout", 0.3)),
+            gate_init=float(ablation_cfg.get("gate_init", 0.95)),
+            input_shape=input_shape,
+        )
+
+
     if variant in FREQUENCY_UDA_VARIANTS:
         from Model.ablation import build_frequency_guided_model, build_scale_table_ablation
 
@@ -840,6 +886,8 @@ def _logits(model, batch, spatial, variant=None):
 
     if variant in FREQUENCY_UDA_VARIANTS:
         return model(image, covariates)
+    if variant in FREQUENCY_MIXSTYLE_VARIANTS:
+        return model(image, covariates, style_labels=batch.get("label"))
     if variant in DICTIONARY_VARIANTS:
         return model(image, covariates)
     if variant in METADATA_VARIANTS:
@@ -875,6 +923,12 @@ def _run_epoch(
     field_strengths = []
     frequency_strengths = []
     frequency_identity_losses = []
+    mixstyle_applied = []
+    mixstyle_donor_eligible = []
+    mixstyle_amplitude_delta = []
+    mixstyle_band_amplitude_delta = []
+    mixstyle_feature_delta = []
+    mixstyle_lambda = []
     weight_tensor = (
         None
         if class_weights is None
@@ -914,6 +968,20 @@ def _run_epoch(
                     logits = model(batch["image"], acquisitions)
             else:
                 logits = _logits(model, batch, spatial, variant=variant)
+            if variant in FREQUENCY_MIXSTYLE_VARIANTS:
+                audit = model.frequency_mixstyle.last_audit
+                if audit is None:
+                    raise RuntimeError("FrequencyMixStyle model did not emit an audit")
+                mixstyle_applied.append(float(audit["applied_fraction"].detach().mean()))
+                mixstyle_donor_eligible.append(
+                    float(audit["donor_eligible_fraction"].detach().mean())
+                )
+                mixstyle_amplitude_delta.append(float(audit["amplitude_relative_delta"].detach().mean()))
+                mixstyle_band_amplitude_delta.append(
+                    audit["band_amplitude_relative_delta"].detach().mean(dim=0).cpu().numpy()
+                )
+                mixstyle_feature_delta.append(float(audit["feature_relative_delta"].detach().mean()))
+                mixstyle_lambda.append(audit["mix_lambda"].detach().mean(dim=0).cpu().numpy())
             if dro is None:
                 objective = F.cross_entropy(
                     logits, batch["label"], weight=weight_tensor
@@ -1048,6 +1116,22 @@ def _run_epoch(
         "frequency_effective_strength": (
             float(np.mean(frequency_strengths)) if frequency_strengths else None
         ),
+        "frequency_mixstyle": {
+            "applied_fraction": float(np.mean(mixstyle_applied)) if mixstyle_applied else None,
+            "donor_eligible_fraction": (
+                float(np.mean(mixstyle_donor_eligible)) if mixstyle_donor_eligible else None
+            ),
+            "amplitude_relative_delta": float(np.mean(mixstyle_amplitude_delta)) if mixstyle_amplitude_delta else None,
+            "band_amplitude_relative_delta": (
+                np.mean(np.stack(mixstyle_band_amplitude_delta), axis=0).tolist()
+                if mixstyle_band_amplitude_delta
+                else None
+            ),
+            "feature_relative_delta": float(np.mean(mixstyle_feature_delta)) if mixstyle_feature_delta else None,
+            "mix_lambda_mean": (
+                np.mean(np.stack(mixstyle_lambda), axis=0).tolist() if mixstyle_lambda else None
+            ),
+        },
     }
 
 
@@ -1276,7 +1360,15 @@ def _train_variant(
     patch_gamma = variant in PATCH_GAMMA_VARIANTS
     scale_table = variant in SCALE_TABLE_VARIANTS
     frequency_uda = variant in FREQUENCY_UDA_VARIANTS
-    frequency_environments = variant in FREQUENCY_ENVIRONMENT_VARIANTS
+    frequency_mixstyle = variant in FREQUENCY_MIXSTYLE_VARIANTS
+    mix_cfg = config.get("frequency_mixstyle") or {}
+    frequency_environments = (
+        variant in FREQUENCY_ENVIRONMENT_VARIANTS
+        or (
+            frequency_mixstyle
+            and bool(mix_cfg.get("use_source_frequency_environments", True))
+        )
+    )
     dictionary = variant in DICTIONARY_VARIANTS
     dual_shift = variant in DUAL_SHIFT_VARIANTS
     metadata = variant in METADATA_VARIANTS
@@ -1323,7 +1415,7 @@ def _train_variant(
                 "weight_decay", config["training"]["weight_decay"]
             )
         )
-    elif spatial or external or patch_gamma or scale_table or frequency_uda:
+    elif spatial or external or patch_gamma or scale_table or frequency_uda or frequency_mixstyle:
         parameters = model.parameters()
         lr = float(config["training"]["learning_rate"])
         weight_decay = float(config["training"]["weight_decay"])
@@ -1338,7 +1430,11 @@ def _train_variant(
         lr=lr,
         weight_decay=weight_decay,
     )
-    frequency_cfg = config.get("frequency_uda") or {}
+    frequency_cfg = (
+        config.get("frequency_mixstyle") or {}
+        if frequency_mixstyle
+        else config.get("frequency_uda") or {}
+    )
     frequency_augmenter = (
         FrequencyEnvironmentAugment3D(
             lowpass_kernel=int(frequency_cfg.get("lowpass_kernel", 3)),
@@ -1451,6 +1547,7 @@ def _train_variant(
                 ),
                 "frequency_identity_loss": train_result.get("frequency_identity_loss"),
                 "frequency_effective_strength": train_result.get("frequency_effective_strength"),
+                "frequency_mixstyle": train_result.get("frequency_mixstyle"),
                 "clean_ce": train_result.get("clean_ce"),
                 "shift_ce": train_result.get("shift_ce"),
                 "js": train_result.get("js"),
@@ -1688,6 +1785,18 @@ def _train_variant(
                     ),
                 }
                 if frequency_uda
+                else None
+            ),
+            "frequency_mixstyle": (
+                {
+                    **model.experiment_signature(),
+                    "training_audit": train_result.get("frequency_mixstyle"),
+                    "evaluation_audit": {
+                        split: result.get("frequency_mixstyle")
+                        for split, result in evaluated_splits
+                    },
+                }
+                if frequency_mixstyle
                 else None
             ),
             "group_weights": None if dro is None else dro.group_weights.cpu().tolist(),
@@ -2097,12 +2206,18 @@ def run(
 ):
     seed_everything(int(config["seed"]))
     source_name, target_name = direction.split("_to_")
-    source = _dataset(config, source_name)
-    target = None if source_only else _dataset(config, target_name)
     requested = [
         VARIANT_ALIASES.get(str(item), str(item))
         for item in list(variants or config.get("variants") or [])
     ]
+    frequency_mixstyle_requested = any(item in FREQUENCY_MIXSTYLE_VARIANTS for item in requested)
+    if frequency_mixstyle_requested and not source_only:
+        raise ValueError(
+            "Frequency MixStyle controls are source-only until a new, unread target holdout is registered; "
+            "rerun with --source-only"
+        )
+    source = _dataset(config, source_name)
+    target = None if source_only else _dataset(config, target_name)
     frequency_uda_requested = any(item in FREQUENCY_UDA_VARIANTS for item in requested)
     if frequency_uda_requested and target is None:
         raise ValueError("frequency UDA requires an external target dataset")
