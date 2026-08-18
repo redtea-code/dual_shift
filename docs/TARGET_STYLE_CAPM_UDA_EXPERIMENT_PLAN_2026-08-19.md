@@ -16,6 +16,8 @@ The target cohort is split by subject into `T_adapt` and a frozen internal
 `T_test`. During training:
 
 - `T_adapt` contributes only target image tensors;
+- `T_adapt` bypasses `JournalSubset`, the covariate preprocessor, and the
+  environment builder entirely;
 - the image is encoded by the shared layer4 encoder and only its spatial FFT
   amplitude is used;
 - source feature phase is retained, and source labels supervise the transported
@@ -23,10 +25,10 @@ The target cohort is split by subject into `T_adapt` and a frozen internal
 - target labels, target covariates, target predictions, and target metrics are
   not read by the adaptation loss or checkpoint selector.
 
-The target covariates are still transformed for the ordinary target inference
-call, because CAPM requires the same table contract as the source model. They
-are not passed to the transport module. `T_test` is evaluated once after the
-source-validation checkpoint is selected.
+Only the frozen `T_test` covariates are transformed for the ordinary target
+inference call, because CAPM requires the same table contract as the source
+model. They are not passed to the transport module. `T_test` is evaluated once
+after the source-validation checkpoint is selected.
 
 ## Models
 
