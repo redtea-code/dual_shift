@@ -45,17 +45,22 @@ from utils.journal_protocol import assert_disjoint_subjects
 VARIANTS = ("capm", "target_style_capm")
 
 
-class _UnlabeledTargetView(Dataset):
-    """Expose target images only, preventing accidental label/table use."""
+class _UnlabeledTargetImages(Dataset):
+    """Load T_adapt images without constructing labels, tables, or environments."""
 
-    def __init__(self, subset: JournalSubset):
-        self.subset = subset
+    def __init__(self, dataset, indices: Sequence[int]):
+        self.dataset = dataset
+        self.indices = np.asarray(indices, dtype=np.int64)
 
     def __len__(self) -> int:
-        return len(self.subset)
+        return len(self.indices)
 
     def __getitem__(self, index: int):
-        return {"image": self.subset[index]["image"]}
+        source_index = int(self.indices[index])
+        record = self.dataset.records[source_index]
+        # Call the dataset image loader directly.  In particular, do not call
+        # dataset[source_index], which would materialize label/covariate fields.
+        return {"image": self.dataset._load_image(record["path"])}
 
 
 def _target_subject_split(dataset, adapt_ratio: float, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -178,7 +183,6 @@ def _run_one(config: dict, direction: str, output_dir: Path, variant: str, devic
     assert_disjoint_subjects(
         source.subject_ids[train_idx], source.subject_ids[val_idx], source.subject_ids[source_test_idx]
     )
-    target_ordered = np.concatenate([target_adapt_idx, target_test_idx])
     preprocessor, builder, train_env, val_env, source_test_env, target_env = _fit_protocol(
         source,
         train_idx,
@@ -186,16 +190,15 @@ def _run_one(config: dict, direction: str, output_dir: Path, variant: str, devic
         source_test_idx,
         target,
         config["environments"],
-        target_indices=target_ordered,
+        # T_adapt is image-only.  Only the frozen inference split needs the
+        # source-fitted covariate/environment transform.
+        target_indices=target_test_idx,
     )
     train_set = JournalSubset(source, train_idx, preprocessor, train_env)
     val_set = JournalSubset(source, val_idx, preprocessor, val_env)
     source_test_set = JournalSubset(source, source_test_idx, preprocessor, source_test_env)
-    target_adapt_set = JournalSubset(
-        target, target_adapt_idx, preprocessor, target_env[: len(target_adapt_idx)]
-    )
     target_test_set = JournalSubset(
-        target, target_test_idx, preprocessor, target_env[len(target_adapt_idx) :]
+        target, target_test_idx, preprocessor, target_env
     )
     batch_size = int(training_cfg.get("batch_size", 2))
     eval_batch_size = int(training_cfg.get("eval_batch_size", batch_size))
@@ -208,10 +211,10 @@ def _run_one(config: dict, direction: str, output_dir: Path, variant: str, devic
         **common,
     )
     target_loader = DataLoader(
-        _UnlabeledTargetView(target_adapt_set),
+        _UnlabeledTargetImages(target, target_adapt_idx),
         batch_size=batch_size,
         shuffle=True,
-        drop_last=len(target_adapt_set) >= batch_size,
+        drop_last=len(target_adapt_idx) >= batch_size,
         **common,
     )
     val_loader = DataLoader(val_set, batch_size=eval_batch_size, shuffle=False, **common)
@@ -310,7 +313,9 @@ def _run_one(config: dict, direction: str, output_dir: Path, variant: str, devic
             "source_train_n": int(len(train_set)),
             "source_val_n": int(len(val_set)),
             "source_test_n": int(len(source_test_set)),
-            "target_adapt_n": int(len(target_adapt_set)),
+            "target_adapt_n": int(len(target_adapt_idx)),
+            "target_adapt_covariate_preprocessing": "none",
+            "target_adapt_environment_construction": "none",
             "target_test_n": int(len(target_test_set)),
             "target_labels_used_in_training": False,
             "target_covariates_used_in_transport": False,
