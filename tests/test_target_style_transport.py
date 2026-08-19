@@ -40,7 +40,9 @@ def test_target_style_capm_has_clean_and_mixed_paths():
     model = TargetStyleCAPM(backbone, transport_strength=0.25).eval()
     image = torch.randn(2, 1, 32, 32, 32)
     target = torch.randn_like(image)
-    covariates = torch.randn(2, 3)
+    # CAPM expects the preprocessed [age, sex-code, education] contract;
+    # sex is a categorical embedding and cannot receive arbitrary floats.
+    covariates = torch.tensor([[65.0, 0.0, 12.0], [80.0, 1.0, 18.0]])
     output = model(image, covariates, target_image=target, return_audit=True)
     assert output["clean_logits"].shape == (2, 2)
     assert output["mixed_logits"].shape == (2, 2)

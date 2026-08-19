@@ -7,6 +7,7 @@ one plan and, once work is complete, one result record.
 |---|---|---|---|---|---|---|
 | DS-034 | Scan-filtered CAPM / IE-CAPM / APIC v3_2 | cyh | RUNNING | [plan](plans/DS-034.md) | [results](results/DS-034/README.md) | 2026-08-19 |
 | DS-035 | FMM raw-image UDA baseline | cyh | RUNNING | [plan](plans/DS-035_FMM_BASELINE.md) | [results](results/DS-035/README.md) | 2026-08-19 |
+| DS-036 | Target-style transport + CAPM UDA probe | cyh | RUNNING | [plan](plans/DS-036_TARGET_STYLE_CAPM_UDA.md) | [results](results/DS-036/README.md) | 2026-08-19 |
 
 ## Status values
 

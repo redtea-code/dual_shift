@@ -13,6 +13,9 @@ Start from [EXPERIMENT_INDEX.md](EXPERIMENT_INDEX.md). New work must receive a
 `DS-xxx` ID, a plan in `plans/`, and a result record in
 `results/DS-xxx/README.md`.
 
+Current registered experiments include DS-034 (scan-filtered CAPM), DS-035
+(FMM baseline), and DS-036 (target-style CAPM UDA probe).
+
 Historical `review/` records are preserved on the
 `archive/pre-plan34-cleanup-20260809` Git ref. They are not active main-branch
 documentation.
