@@ -2,7 +2,9 @@
 
 Owner: cyh
 
-Status: RUNNING
+Status: COMPLETED
+
+Decision: NO-GO for promotion as a CAPM improvement
 
 Result record: `docs/results/DS-036/README.md`
 

@@ -14,7 +14,9 @@ Start from [EXPERIMENT_INDEX.md](EXPERIMENT_INDEX.md). New work must receive a
 `results/DS-xxx/README.md`.
 
 Current registered experiments include DS-034 (scan-filtered CAPM), DS-035
-(FMM baseline), and DS-036 (target-style CAPM UDA probe).
+(FMM baseline), DS-036 (completed target-style CAPM UDA probe), DS-037
+(proposed amplitude transport audit), and DS-038 (proposed GRL factorial
+audit).
 
 Historical `review/` records are preserved on the
 `archive/pre-plan34-cleanup-20260809` Git ref. They are not active main-branch

@@ -158,5 +158,5 @@ This is not evidence for scanner-causal or field-strength-causal explanations, a
 
 - Worktree: `/zjs/AD_Project/dual_shift_target_style_uda`
 - Results: `outputs/target_style_capm_uda_scan_filtered_1p5t_mci_ad/ADNI_to_NACC/seed_<42-46>/<variant>/metrics.json`
-- Plan: `docs/TARGET_STYLE_CAPM_UDA_EXPERIMENT_PLAN_2026-08-19.md`
+- Plan: `docs/plans/DS-036_TARGET_STYLE_CAPM_UDA.md`
 - Compared variants: `capm`, `target_style_capm`
