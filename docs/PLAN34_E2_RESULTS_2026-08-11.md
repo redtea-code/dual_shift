@@ -1,7 +1,7 @@
 # Plan 34 E2 完整阶段结果（MCI vs AD）
 
 - 更新：2026-08-11 UTC+8
-- 执行计划：`review/plans/34_scan_filtered_capm_execution_plan_2026-08-08.md`
+- 执行计划：`docs/plans/DS-034.md`
 - 协议：`scan_filtered_v1_2026-08-08`（ADNI 1.5T scan-filtered；NACC 3T）
 - 冻结代码：`plan34-scan-filtered-v2+local-selector-fix`；commit `a07c882f4ad3c7aeb907438a0dd64d1c5c178249`
 - 任务：MCI vs AD；seed=42；source split seed=42；训练上限 50 epoch。
@@ -224,5 +224,5 @@
 - 指标：`outputs/e2_plan34/{layer3_patch2,layer4_pixel,layer5_pixel}/{direction}_seed42/{variant}/journal_metrics.json`
 - 日志：对应方向目录下的 `train.log`、`resume.log` 或 `final_transformer_cross.log`
 - 配置与 provenance：`resolved_e2/mci_ad_{preset}_seed42.yaml` 及同名 `.provenance.json`
-- 规范：`review/plans/34_scan_filtered_capm_execution_plan_2026-08-08.md`
+- 规范：`docs/plans/DS-034.md`
 - 表中数值直接来自各报告的 `best_checkpoint_selection.collapse_guard.metrics`；缺失项不作数值填充。

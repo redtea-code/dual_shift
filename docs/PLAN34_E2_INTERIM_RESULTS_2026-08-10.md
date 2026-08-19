@@ -1,7 +1,7 @@
 # Plan 34 E2 阶段性实验结果表（MCI vs AD）
 
 - 更新：2026-08-11 UTC+8
-- 执行计划：`review/plans/34_scan_filtered_capm_execution_plan_2026-08-08.md`
+- 执行计划：`docs/plans/DS-034.md`
 - 协议：`scan_filtered_v1_2026-08-08`（ADNI 1.5T scan-filtered；NACC 3T）
 - 代码冻结：`plan34-scan-filtered-v2+local-selector-fix`；commit `a07c882f4ad3c7aeb907438a0dd64d1c5c178249`
 - 任务：MCI vs AD；E2 seed=42；source split seed=42；训练上限 50 epoch。
@@ -111,5 +111,5 @@
 
 - 结果文件：`outputs/e2_plan34/{layer3_patch2,layer4_pixel}/{direction}_seed42/{variant}/journal_metrics.json`
 - Resolved config / provenance：`resolved_e2/mci_ad_{preset}_seed42.yaml` 及同名 `.provenance.json`
-- E2 规范：`review/plans/34_scan_filtered_capm_execution_plan_2026-08-08.md`
+- E2 规范：`docs/plans/DS-034.md`
 - `layer3_patch2` 与 `layer4_pixel` 各自使用独立 resolved config hash；同一 preset 的两个方向和全部变体使用相同 hash。报告中的每行数值直接读取对应 `journal_metrics.json` 的 `best_checkpoint_selection.collapse_guard.metrics`。
