@@ -11,7 +11,7 @@
 - `review/plans/17_apis_v2_scan_parameter_generalization_plan_2026-08-03.md`
 - `review/plans/18_scan_aware_low_compute_execution_plan_2026-08-03.md`
 
-早期 `review/plans/01--16` 和 `review/records/` 是预注册与实验审计历史，不代表当前方法主张，不应删除或覆盖。
+早期 `review/plans/01--16` 和 `review/records/` 是预注册与实验审计历史，不代表当前方法主张，不应删除或覆盖。它们位于 Git ref `archive/pre-plan34-cleanup-20260809`，不是当前 `main` 的工作文档。
 
 ## 1. 数据事实
 

@@ -63,4 +63,4 @@ Cohen’s d is source minus target. Positive values mean the source cohort has a
 - Per-run statistics and domain predictions: sibling `feature_frequency_statistics.json`, `feature_domain_predictions.csv`.
 - Combined summary: `outputs/frequency_audit/image_only_features/feature_frequency_statistics.json`, `feature_domain_classifier_summary.csv`, `feature_domain_predictions.csv`.
 - Input matrix: `outputs/frequency_audit/image_only_features/run_manifest.json`.
-- Raw-image reference: `docs/PLAN34_FREQUENCY_AUDIT_RAW_IMAGE_2026-08-14.md`.
+- Raw-image reference: `DS-034_RAW_IMAGE_FREQUENCY_AUDIT_2026-08-14.md`.

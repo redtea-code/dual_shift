@@ -5,7 +5,8 @@ one plan and, once work is complete, one result record.
 
 | ID | Experiment | Owner | Status | Plan | Result | Last updated |
 |---|---|---|---|---|---|---|
-| DS-034 | Scan-filtered CAPM / IE-CAPM / APIC v3_2 | cyh | RUNNING | [plan](plans/DS-034.md) | [results](results/DS-034.md) | 2026-08-19 |
+| DS-034 | Scan-filtered CAPM / IE-CAPM / APIC v3_2 | cyh | RUNNING | [plan](plans/DS-034.md) | [results](results/DS-034/README.md) | 2026-08-19 |
+| DS-035 | FMM raw-image UDA baseline | cyh | RUNNING | [plan](plans/DS-035_FMM_BASELINE.md) | [results](results/DS-035/README.md) | 2026-08-19 |
 
 ## Status values
 

@@ -23,7 +23,7 @@
 - 本文将“机制有效”限定为：在可支持样本上，干预真实执行、其反事实输出可审计，且不会破坏 clean 决策；这本身仍不等于性能收益或因果识别。
 - ADNI->NACC 与 NACC->ADNI 是不同的问题。NACC 缺少 1.5T 且协议变化有限，NACC->ADNI 包含 source 支持集外的 1.5T/厂家变化；双向平均不能掩盖该不对称性。
 
-数据可识别性和允许的主张边界以 `docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md` 为准。
+数据可识别性和允许的主张边界以 `docs/decisions/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md` 为准。
 
 ## 3. APIS v2：先验证完整度与可复现性，再解释趋势
 
@@ -126,9 +126,12 @@ v3_2 初版的 K=4 bank 表面上有有效 slot 和非空计数，但 prototype 
 
 ## 9. 主要证据索引
 
+除当前 `docs/` 中的文档外，下列 `review/...` 均是历史证据路径，保存在 Git ref
+`archive/pre-plan34-cleanup-20260809`，不是当前 `main` 的工作文档。
+
 - APIS v2 三种子 Gate A：`review/analysis/08_dual_shift_apis_3seed_analysis_2026-07-30.md`。
 - APIS v2 跨任务中期判断：`review/analysis/18_apis_v2_interim_cross_task_assessment_2026-08-03.md`。
-- 数据现实与主张边界：`docs/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md`。
+- 数据现实与主张边界：`docs/decisions/SCAN_AWARE_DATA_REALITY_AND_CLAIM_BOUNDARY.md`。
 - APIC v3 CN 诊断：`review/records/apic_v3/3090/25_apic_v3_cn_failure_diagnosis_2026-08-04.md`。
 - APIC v3 MCI 诊断：`review/records/apic_v3/5090/25_apic_v3_failure_diagnostics_mci_ad_2026-08-04.md`。
 - APIC v3_2 实现复审与修复复审：`review/analysis/27_apic_v3_2_implementation_review_2026-08-04.md`、`review/analysis/28_apic_v3_2_defect_remediation_review_2026-08-04.md`。

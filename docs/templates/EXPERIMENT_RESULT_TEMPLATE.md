@@ -1,6 +1,8 @@
 # DS-xxx: Result record
 
 Plan: `docs/plans/DS-xxx.md`
+
+Place this file at `docs/results/DS-xxx/README.md`.
 Status: COMPLETED / BLOCKED
 Code commit:
 Configuration:

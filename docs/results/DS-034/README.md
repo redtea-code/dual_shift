@@ -2,7 +2,7 @@
 
 Status: RUNNING
 
-Plan: [docs/plans/DS-034.md](../plans/DS-034.md)
+Plan: [DS-034 plan](../../plans/DS-034.md)
 
 This record is the result entry for DS-034. Add one dated subsection for each
 completed stage or direction. Do not report a performance result until the
@@ -17,9 +17,9 @@ command, commit, configuration, manifest, and selector are recorded.
 
 ## Existing evidence
 
-- [E2 interim results](../PLAN34_E2_INTERIM_RESULTS_2026-08-10.md)
-- [E2 results](../PLAN34_E2_RESULTS_2026-08-11.md)
-- [target test results](../PLAN34_TARGET_TEST_RESULTS_2026-08-11.md)
+- [E2 interim results](E2_INTERIM_2026-08-10.md)
+- [E2 results](E2_2026-08-11.md)
+- [target test results](TARGET_TEST_2026-08-11.md)
 
 ## Required entry format
 

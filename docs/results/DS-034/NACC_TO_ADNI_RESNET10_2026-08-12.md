@@ -134,5 +134,5 @@
 - ResNet10 checkpoint：`outputs/resnet10_seed43_44_validation/{preset}/NACC_to_ADNI_seed{43,44}/{variant}/best_checkpoint.pt`
 - ResNet10 target：`outputs/resnet10_seed43_44_validation/target_eval/{preset}/NACC_to_ADNI_seed{43,44}/{variant}/target_metrics.json`
 - ResNet10 配置：`resolved_e2/resnet10_seed43_44_validation/mci_ad_resnet10_{preset}_seed{43,44}.yaml`
-- ResNet18 对照报告：`docs/PLAN34_NACC_TO_ADNI_SEED43_44_VALIDATION_2026-08-12.md`
+- ResNet18 对照报告：`NACC_TO_ADNI_RESNET10_VALIDATION_2026-08-12.md`
 - Evaluator：`experiments/evaluate_frozen_journal_target.py`
