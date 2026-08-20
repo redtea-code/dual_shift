@@ -42,7 +42,23 @@ from training.journal_metrics import compute_journal_metrics, save_json_summary
 from utils.journal_protocol import assert_disjoint_subjects
 
 
-VARIANTS = ("capm", "target_style_capm")
+VARIANTS = (
+    "capm",
+    "source_phase_a025",
+    "source_phase_a050",
+    "source_phase_a100",
+    "target_phase_a050",
+    "target_phase_a100",
+)
+
+VARIANT_TRANSPORT = {
+    "capm": (0.0, "none"),
+    "source_phase_a025": (0.25, "source"),
+    "source_phase_a050": (0.50, "source"),
+    "source_phase_a100": (1.00, "source"),
+    "target_phase_a050": (0.50, "target"),
+    "target_phase_a100": (1.00, "target"),
+}
 
 
 class _UnlabeledTargetImages(Dataset):
@@ -101,9 +117,11 @@ def _make_model(config: dict, num_classes: int, device: torch.device) -> TargetS
         gate_init=float(ablation_cfg.get("gate_init", 0.95)),
         input_shape=input_shape,
     )
+    transport_cfg = config.get("target_style_transport") or {}
     return TargetStyleCAPM(
         backbone,
-        transport_strength=float((config.get("target_style_transport") or {}).get("strength", 0.5)),
+        transport_strength=float(transport_cfg.get("strength", 0.5)),
+        transport_phase_mode=str(transport_cfg.get("phase_mode", "source")),
         force_capm=True,
     ).to(device)
 
@@ -143,6 +161,19 @@ def _evaluate(model: TargetStyleCAPM, loader: DataLoader, device: torch.device) 
     return {"metrics": metrics, "logits": logits_np, "labels": labels_np}
 
 
+def _capm_audit_summary(audit: dict | None) -> dict[str, float]:
+    if not audit:
+        return {}
+    summary = {}
+    for name in ("gates", "effective_fields"):
+        value = audit.get(name)
+        if torch.is_tensor(value):
+            summary[f"{name}_mean"] = float(value.detach().mean().cpu())
+            summary[f"{name}_std"] = float(value.detach().std(unbiased=False).cpu())
+            summary[f"{name}_norm"] = float(value.detach().norm().cpu())
+    return summary
+
+
 def _loss(output: dict, labels: torch.Tensor, class_weights: torch.Tensor | None, cfg: dict, variant: str) -> torch.Tensor:
     clean = F.cross_entropy(output["clean_logits"], labels, weight=class_weights)
     if variant == "capm":
@@ -163,6 +194,13 @@ def _loss(output: dict, labels: torch.Tensor, class_weights: torch.Tensor | None
 
 
 def _run_one(config: dict, direction: str, output_dir: Path, variant: str, device_name: str) -> dict:
+    if variant not in VARIANT_TRANSPORT:
+        raise ValueError(f"unknown registered variant: {variant}")
+    strength, phase_mode = VARIANT_TRANSPORT[variant]
+    if variant != "capm":
+        transport_cfg = config.setdefault("target_style_transport", {})
+        transport_cfg["strength"] = strength
+        transport_cfg["phase_mode"] = phase_mode
     seed_everything(int(config["seed"]))
     source_name, target_name = direction.split("_to_")
     source = _dataset(config, source_name)
@@ -244,6 +282,10 @@ def _run_one(config: dict, direction: str, output_dir: Path, variant: str, devic
         model.train()
         losses = []
         amplitudes = []
+        mixed_ces = []
+        consistencies = []
+        agreements = []
+        transport_diagnostics = []
         for raw_source in train_loader:
             source_batch = _batch_to_device(raw_source, device)
             target_image = None
@@ -269,7 +311,16 @@ def _run_one(config: dict, direction: str, output_dir: Path, variant: str, devic
             optimizer.step()
             losses.append(float(objective.detach().cpu()))
             if "transport_audit" in output:
-                amplitudes.append(float(output["transport_audit"]["amplitude_l1"].cpu()))
+                audit = output["transport_audit"]
+                amplitudes.append(float(audit["amplitude_l1"].cpu()))
+                mixed_ces.append(float(F.cross_entropy(output["mixed_logits"], source_batch["label"], weight=class_weights).detach().cpu()))
+                consistencies.append(float(F.kl_div(F.log_softmax(output["mixed_logits"], dim=1), torch.softmax(output["clean_logits"].detach(), dim=1), reduction="batchmean").detach().cpu()))
+                agreements.append(float((output["clean_logits"].argmax(1) == output["mixed_logits"].argmax(1)).float().mean().detach().cpu()))
+                transport_diagnostics.append({
+                    **{key: (value if isinstance(value, str) else float(value.cpu())) for key, value in audit.items()},
+                    "clean_capm": _capm_audit_summary(output.get("clean_capm_audit")),
+                    "mixed_capm": _capm_audit_summary(output.get("mixed_capm_audit")),
+                })
         val = _evaluate(model, val_loader, device)
         val_ba = float(val["metrics"].get("balanced_accuracy", float("nan")))
         history.append(
@@ -278,6 +329,10 @@ def _run_one(config: dict, direction: str, output_dir: Path, variant: str, devic
                 "train_loss": float(np.mean(losses)) if losses else float("nan"),
                 "val_balanced_accuracy": val_ba,
                 "target_amplitude_l1": float(np.mean(amplitudes)) if amplitudes else None,
+                "transported_source_ce": float(np.mean(mixed_ces)) if mixed_ces else None,
+                "consistency_loss": float(np.mean(consistencies)) if consistencies else None,
+                "clean_mixed_prediction_agreement": float(np.mean(agreements)) if agreements else None,
+                "transport_diagnostics": transport_diagnostics[-1] if transport_diagnostics else None,
             }
         )
         if np.isfinite(val_ba) and val_ba > best_score:
@@ -320,13 +375,20 @@ def _run_one(config: dict, direction: str, output_dir: Path, variant: str, devic
             "target_labels_used_in_training": False,
             "target_covariates_used_in_transport": False,
             "target_image_information": "layer4_spatial_fft_amplitude_only",
-            "source_phase_preserved": True,
+            "resolved_transport_strength": strength,
+            "resolved_phase_mode": phase_mode,
+            "source_phase_preserved": phase_mode == "source",
+            "target_phase_used": phase_mode == "target",
+            "target_environment_used_in_transport": False,
+            "target_metric_access_before_final_evaluation": False,
+            "target_label_access_before_final_evaluation": False,
             "target_test_used_for_selection": False,
             "split_seed": int(config.get("split_seed", config["seed"])),
             "target_split_seed": int((config.get("target_split") or {}).get("seed", config["seed"])),
             "target_adapt_subjects": sorted(set(target.subject_ids[target_adapt_idx].astype(str).tolist())),
             "target_test_subjects": sorted(set(target.subject_ids[target_test_idx].astype(str).tolist())),
         },
+        "mechanism_diagnostics": [row["transport_diagnostics"] for row in history if row["transport_diagnostics"] is not None],
         "config": config,
     }
     save_json_summary(output_dir / "metrics.json", report)

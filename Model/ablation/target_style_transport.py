@@ -30,15 +30,19 @@ class TargetStyleFeatureTransport3D(nn.Module):
         *,
         eps: float = 1e-6,
         detach_target: bool = True,
+        phase_mode: str = "source",
     ) -> None:
         super().__init__()
         self.strength = float(strength)
         self.eps = float(eps)
         self.detach_target = bool(detach_target)
+        self.phase_mode = str(phase_mode)
         if not 0.0 <= self.strength <= 1.0:
             raise ValueError("strength must lie in [0, 1]")
         if self.eps <= 0:
             raise ValueError("eps must be positive")
+        if self.phase_mode not in {"source", "target"}:
+            raise ValueError("phase_mode must be 'source' or 'target'")
 
     @staticmethod
     def _validate(source: Tensor, target: Tensor) -> None:
@@ -56,12 +60,16 @@ class TargetStyleFeatureTransport3D(nn.Module):
         target: Tensor,
         *,
         strength: float | None = None,
+        phase_mode: str | None = None,
         return_audit: bool = False,
-    ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
+    ) -> Tensor | tuple[Tensor, dict[str, Tensor | str]]:
         self._validate(source, target)
         alpha = self.strength if strength is None else float(strength)
+        selected_phase_mode = self.phase_mode if phase_mode is None else str(phase_mode)
         if not 0.0 <= alpha <= 1.0:
             raise ValueError("strength must lie in [0, 1]")
+        if selected_phase_mode not in {"source", "target"}:
+            raise ValueError("phase_mode must be 'source' or 'target'")
         if target.shape[-3:] != source.shape[-3:]:
             target = F.interpolate(
                 target,
@@ -77,6 +85,7 @@ class TargetStyleFeatureTransport3D(nn.Module):
                 "strength": source.new_zeros(()),
                 "amplitude_l1": source.new_zeros(()),
                 "target_detached": source.new_tensor(float(self.detach_target)),
+                "phase_mode": selected_phase_mode,
             }
             return (output, audit) if return_audit else output
 
@@ -87,8 +96,10 @@ class TargetStyleFeatureTransport3D(nn.Module):
         target_amp = target_fft.abs()
         mixed_amp = torch.lerp(source_amp, target_amp, alpha)
         # Unit complex phase is more stable than differentiating angle().
-        source_phase = source_fft / source_amp.clamp_min(self.eps)
-        mixed_fft = mixed_amp * source_phase
+        phase_fft = source_fft if selected_phase_mode == "source" else target_fft
+        phase_amplitude = source_amp if selected_phase_mode == "source" else target_amp
+        selected_phase = phase_fft / phase_amplitude.clamp_min(self.eps)
+        mixed_fft = mixed_amp * selected_phase
         transported = torch.fft.irfftn(
             mixed_fft,
             s=tuple(int(size) for size in source.shape[-3:]),
@@ -108,6 +119,14 @@ class TargetStyleFeatureTransport3D(nn.Module):
             "strength": source.new_tensor(alpha),
             "amplitude_l1": (source_amp - target_amp).abs().mean().detach(),
             "target_detached": source.new_tensor(float(self.detach_target)),
+            "phase_mode": selected_phase_mode,
+            "source_feature_mean": source.mean().detach(),
+            "source_feature_std": source.std(unbiased=False).detach(),
+            "source_feature_norm": source.norm().detach(),
+            "transported_feature_mean": output.mean().detach(),
+            "transported_feature_std": output.std(unbiased=False).detach(),
+            "transported_feature_norm": output.norm().detach(),
+            "transported_feature_finite": torch.isfinite(output).all().to(source.dtype).detach(),
         }
         return (output, audit) if return_audit else output
 
@@ -127,6 +146,7 @@ class TargetStyleCAPM(nn.Module):
         backbone: nn.Module,
         *,
         transport_strength: float = 0.5,
+        transport_phase_mode: str = "source",
         force_capm: bool = True,
     ) -> None:
         super().__init__()
@@ -138,7 +158,7 @@ class TargetStyleCAPM(nn.Module):
         if getattr(backbone, "interaction", None) != "capm":
             raise ValueError("TargetStyleCAPM requires interaction='capm'")
         self.backbone = backbone
-        self.transport = TargetStyleFeatureTransport3D(transport_strength)
+        self.transport = TargetStyleFeatureTransport3D(transport_strength, phase_mode=transport_phase_mode)
         self.force_capm = bool(force_capm)
 
     def extract_features(self, image: Tensor) -> Tensor:
@@ -147,14 +167,17 @@ class TargetStyleCAPM(nn.Module):
             x = getattr(self.backbone, name)(x)
         return x
 
-    def classify_features(self, features: Tensor, covariates: Tensor) -> Tensor:
-        conditioned, _ = self.backbone._apply_calibrator(
+    def classify_features(
+        self, features: Tensor, covariates: Tensor, *, return_audit: bool = False
+    ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
+        conditioned, capm_audit = self.backbone._apply_calibrator(
             features,
             covariates,
             force_capm=self.force_capm,
-            return_audit=False,
+            return_audit=return_audit,
         )
-        return self.backbone.fc(self.backbone.dropout(self.backbone.pool(conditioned).flatten(1)))
+        logits = self.backbone.fc(self.backbone.dropout(self.backbone.pool(conditioned).flatten(1)))
+        return (logits, capm_audit) if return_audit else logits
 
     def predict(self, image: Tensor, covariates: Tensor) -> Tensor:
         return self.classify_features(self.extract_features(image), covariates)
@@ -168,11 +191,16 @@ class TargetStyleCAPM(nn.Module):
         return_audit: bool = False,
     ) -> dict[str, Any]:
         source_features = self.extract_features(image)
-        clean_logits = self.classify_features(source_features, covariates)
+        clean_result = self.classify_features(source_features, covariates, return_audit=return_audit)
+        clean_logits, clean_capm_audit = (
+            clean_result if return_audit else (clean_result, None)
+        )
         result: dict[str, Any] = {
             "clean_logits": clean_logits,
             "source_features": source_features,
         }
+        if return_audit:
+            result["clean_capm_audit"] = clean_capm_audit
         if target_image is None:
             return result
         target_features = self.extract_features(target_image)
@@ -182,9 +210,14 @@ class TargetStyleCAPM(nn.Module):
             return_audit=True,
         )
         result["mixed_features"] = mixed_features
-        result["mixed_logits"] = self.classify_features(mixed_features, covariates)
+        mixed_result = self.classify_features(mixed_features, covariates, return_audit=return_audit)
+        mixed_logits, mixed_capm_audit = (
+            mixed_result if return_audit else (mixed_result, None)
+        )
+        result["mixed_logits"] = mixed_logits
         if return_audit:
             result["transport_audit"] = audit
+            result["mixed_capm_audit"] = mixed_capm_audit
         return result
 
 

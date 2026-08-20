@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from Model.ablation.scale_table_transformer import build_scale_table_ablation
@@ -48,4 +49,25 @@ def test_target_style_capm_has_clean_and_mixed_paths():
     assert output["mixed_logits"].shape == (2, 2)
     assert output["mixed_features"].shape == output["source_features"].shape
     assert "transport_audit" in output
+    assert "clean_capm_audit" in output
+    assert "mixed_capm_audit" in output
     assert torch.isfinite(output["mixed_logits"]).all()
+
+
+def test_target_phase_mode_is_explicit_and_changes_phase_reconstruction():
+    source = torch.randn(2, 3, 5, 6, 7)
+    target = torch.randn_like(source)
+    source_mode = TargetStyleFeatureTransport3D(strength=0.5, phase_mode="source")
+    target_mode = TargetStyleFeatureTransport3D(strength=0.5, phase_mode="target")
+    source_output, source_audit = source_mode(source, target, return_audit=True)
+    target_output, target_audit = target_mode(source, target, return_audit=True)
+    assert source_audit["phase_mode"] == "source"
+    assert target_audit["phase_mode"] == "target"
+    assert torch.isfinite(source_output).all()
+    assert torch.isfinite(target_output).all()
+    assert not torch.allclose(source_output, target_output)
+
+
+def test_invalid_phase_mode_is_rejected():
+    with pytest.raises(ValueError, match="phase_mode"):
+        TargetStyleFeatureTransport3D(strength=0.5, phase_mode="invalid")
