@@ -56,7 +56,8 @@ from training.fmm_protocol import (
 
 UPSTREAM_REPOSITORY = "https://github.com/ku-milab/FMM"
 UPSTREAM_COMMIT = "580625cee5bfc1474fe8700e530ade07ac5e9776"
-VARIANTS = ("b0_ref", "b1_fmm", "b1a_no_source_fft", "b1b_no_attention", "b1c_no_grl")
+VARIANTS = ("b0_ref", "b1_fmm", "b1a_no_source_fft", "b1b_no_attention", "b1c_no_grl", "g0_no_grl", "g1_domain_only", "g2_intensity_only", "g3_both_grl")
+DS038_VARIANTS = ("g0_no_grl", "g1_domain_only", "g2_intensity_only", "g3_both_grl")
 
 
 def seed_everything(seed: int) -> None:
@@ -106,12 +107,36 @@ def _dataset_file_hash(dataset) -> str | None:
 def _variant_flags(variant: str) -> dict[str, bool]:
     if variant not in VARIANTS:
         raise ValueError(f"unknown FMM variant {variant!r}; choose from {VARIANTS}")
+    if variant in DS038_VARIANTS:
+        return {
+            "source_stage": True,
+            "inter_stage": True,
+            "source_fft": True,
+            "attention": True,
+            "domain_grl": variant in {"g1_domain_only", "g3_both_grl"},
+            "intensity_grl": variant in {"g2_intensity_only", "g3_both_grl"},
+        }
     return {
         "source_stage": variant != "b0_ref",
         "inter_stage": variant != "b0_ref",
         "source_fft": variant not in {"b0_ref", "b1a_no_source_fft"},
         "attention": variant not in {"b1b_no_attention", "b0_ref"},
         "grl": variant not in {"b1c_no_grl", "b0_ref"},
+    }
+
+
+
+def _head_diagnostics(logits: torch.Tensor, labels: torch.Tensor, *, gradient_norm: float, coefficient: float) -> dict[str, float | None]:
+    probabilities = torch.sigmoid(logits.detach()).cpu().numpy()
+    target = labels.detach().cpu().numpy().astype(np.int64)
+    predicted = (probabilities >= 0.5).astype(np.int64)
+    return {
+        "loss": float(F.binary_cross_entropy_with_logits(logits.detach(), labels.detach()).cpu()),
+        "accuracy": float(np.mean(predicted == target)),
+        "balanced_accuracy": float(balanced_accuracy_score(target, predicted)),
+        "auc": float(roc_auc_score(target, probabilities)) if len(np.unique(target)) == 2 else None,
+        "gradient_norm": float(gradient_norm),
+        "grl_coefficient": float(coefficient),
     }
 
 
@@ -211,10 +236,14 @@ def _train_epoch(
     model.train()
     losses = {"total": [], "classification": [], "domain": [], "attention": [], "intensity": []}
     fmm_cfg = config.get("fmm", {}) or {}
-    lambda_grl = float(fmm_cfg.get("grl_coefficient", 1.0)) if flags["grl"] else 0.0
-    lambda_domain = float(fmm_cfg.get("lambda_domain", 1.0)) if flags["grl"] else 0.0
+    domain_enabled = flags.get("domain_grl", flags.get("grl", False))
+    intensity_enabled = flags.get("intensity_grl", flags.get("grl", False))
+    lambda_grl = float(fmm_cfg.get("grl_coefficient", 1.0)) if (domain_enabled or intensity_enabled) else 0.0
+    lambda_domain = float(fmm_cfg.get("lambda_domain", 1.0)) if domain_enabled else 0.0
     lambda_attention = float(fmm_cfg.get("lambda_attention", 1.0)) if flags["attention"] else 0.0
-    lambda_intensity = float(fmm_cfg.get("lambda_intensity", 1.0)) if flags["grl"] else 0.0
+    lambda_intensity = float(fmm_cfg.get("lambda_intensity", 1.0)) if intensity_enabled else 0.0
+    diagnostics.setdefault("domain", [])
+    diagnostics.setdefault("intensity", [])
     intensity_cfg = fmm_cfg.get("intensity_transform", {}) or {}
     target_iterator = iter(target_loader) if target_loader is not None else None
     for source_batch in source_loader:
@@ -242,11 +271,13 @@ def _train_epoch(
             out_source = model(source_images, return_attention=flags["attention"])
             out_invariant = model(source_invariant, return_attention=flags["attention"])
             cls_loss = 0.5 * (criterion(out_source["logits"], labels) + criterion(out_invariant["logits"], labels))
-            if flags["grl"]:
-                domain_features = torch.cat((out_source["features"], out_invariant["features"]), dim=0)
-                domain_labels = torch.cat((torch.zeros(len(labels), device=device), torch.ones(len(labels), device=device)))
-                domain_logits = model.domain_logits(domain_features, coefficient=lambda_grl, head="intensity")
-                intensity_loss = F.binary_cross_entropy_with_logits(domain_logits, domain_labels)
+            if intensity_enabled:
+                intensity_features = torch.cat((out_source["features"], out_invariant["features"]), dim=0)
+                intensity_features.retain_grad()
+                intensity_labels = torch.cat((torch.zeros(len(labels), device=device), torch.ones(len(labels), device=device)))
+                intensity_logits = model.domain_logits(intensity_features, coefficient=lambda_grl, head="intensity")
+                intensity_loss = F.binary_cross_entropy_with_logits(intensity_logits, intensity_labels)
+                diagnostics["intensity"].append({"metrics": _head_diagnostics(intensity_logits, intensity_labels, gradient_norm=0.0, coefficient=lambda_grl), "features": intensity_features})
             total = cls_loss + lambda_intensity * intensity_loss
             diagnostics.setdefault("source_stage", spectral_diagnostics(source_invariant[:1].detach()))
         else:
@@ -277,16 +308,24 @@ def _train_epoch(
             )
             target_style = mix_amplitude(source_for_inter, target_images, mixing)
             target_out = model(target_style, return_attention=flags["attention"])
-            if flags["grl"]:
+            if domain_enabled:
                 domain_features = torch.cat((source_out["features"], target_out["features"]), dim=0)
+                domain_features.retain_grad()
                 domain_labels = torch.cat((torch.zeros(batch_size, device=device), torch.ones(batch_size, device=device)))
                 domain_logits = model.domain_logits(domain_features, coefficient=lambda_grl, head="domain")
                 domain_loss = F.binary_cross_entropy_with_logits(domain_logits, domain_labels)
+                diagnostics["domain"].append({"metrics": _head_diagnostics(domain_logits, domain_labels, gradient_norm=0.0, coefficient=lambda_grl), "features": domain_features})
             if flags["attention"]:
                 attention_loss = F.mse_loss(source_out["attention"], target_out["attention"])
             total = total + lambda_domain * domain_loss + lambda_attention * attention_loss
             diagnostics.setdefault("inter_stage", spectral_diagnostics(target_style[:1].detach()))
         total.backward()
+        for head_name in ("domain", "intensity"):
+            if diagnostics.get(head_name):
+                entry = diagnostics[head_name][-1]
+                features = entry.pop("features", None)
+                if features is not None and features.grad is not None:
+                    entry["metrics"]["gradient_norm"] = float(features.grad.detach().norm().cpu())
         optimizer.step()
         losses["total"].append(float(total.detach().cpu()))
         losses["classification"].append(float(cls_loss.detach().cpu()))
@@ -434,7 +473,8 @@ def run(config: dict, direction: str, output_dir: str, *, variant: str, device: 
             "test": subject_digest(target_test.subject_ids),
         },
         "sampled_target_subject_ids": sorted(sampled_target_subjects),
-        "spectral_diagnostics": diagnostics,
+        "spectral_diagnostics": {key: value for key, value in diagnostics.items() if key not in {"domain", "intensity"}},
+        "mechanism_diagnostics": {key: [entry["metrics"] for entry in diagnostics.get(key, [])] for key in ("domain", "intensity")},
         "split_sizes": {
             "source_train": int(len(source_train)),
             "source_val": int(len(source_val)),

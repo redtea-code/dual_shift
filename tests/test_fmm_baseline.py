@@ -94,3 +94,29 @@ def test_registered_variant_flags_match_ablation_contract():
     assert _variant_flags("b1c_no_grl")["source_stage"]
     assert not _variant_flags("b1c_no_grl")["grl"]
     assert not _variant_flags("b1b_no_attention")["attention"]
+
+
+def test_ds038_factorial_variant_flags_are_independent():
+    from experiments.train_fmm_baseline import _variant_flags
+
+    assert _variant_flags("g0_no_grl") == {
+        "source_stage": True, "inter_stage": True, "source_fft": True,
+        "attention": True, "domain_grl": False, "intensity_grl": False,
+    }
+    assert _variant_flags("g1_domain_only")["domain_grl"]
+    assert not _variant_flags("g1_domain_only")["intensity_grl"]
+    assert not _variant_flags("g2_intensity_only")["domain_grl"]
+    assert _variant_flags("g2_intensity_only")["intensity_grl"]
+    assert _variant_flags("g3_both_grl")["domain_grl"]
+    assert _variant_flags("g3_both_grl")["intensity_grl"]
+
+
+def test_ds038_head_diagnostics_have_discriminator_and_gradient_fields():
+    from experiments.train_fmm_baseline import _head_diagnostics
+
+    logits = torch.tensor([-1.0, 1.0, -0.5, 0.5])
+    labels = torch.tensor([0.0, 1.0, 1.0, 0.0])
+    result = _head_diagnostics(logits, labels, gradient_norm=0.25, coefficient=1.0)
+    assert set(("loss", "accuracy", "balanced_accuracy", "auc", "gradient_norm", "grl_coefficient")) <= result.keys()
+    assert result["gradient_norm"] == 0.25
+    assert result["grl_coefficient"] == 1.0

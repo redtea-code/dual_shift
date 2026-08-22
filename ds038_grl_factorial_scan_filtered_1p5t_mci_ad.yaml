@@ -1,0 +1,61 @@
+# Independent FMM baseline. This file does not modify the C0-C4 frequency-UDA
+# configuration and only permits the primary ADNI 1.5T -> NACC 3T direction.
+preprocessing_version: skullstrip+n4+mni+crop+normalize
+seed: 42
+split_seed: 42
+output_root: outputs/ds038_grl_factorial_scan_filtered_1p5t_mci_ad
+claim:
+  protocol: scan_filtered_1p5t_mci_ad
+  protocol_revision: ds038_factorial_1
+  primary_metric: balanced_accuracy
+  split_seed: 42
+  target_holdout_status: exploratory_until_new_label_blind_holdout
+scan_filtered_protocol:
+  enabled: true
+  version: scan_filtered_v1_2026-08-08
+  root: ./scan_manifests_filtered
+  files: {ADNI: ADNI_1p5T_scan_filtered_manifest.csv, NACC: NACC_3T_scan_filtered_manifest.csv}
+  expose_acquisition: false
+task: {mode: binary, label_mapping: {2: 0, 3: 1}, class_names: {0: MCI, 1: AD}, positive_class: AD}
+metadata_match: {max_days: 90, require_diagnosis_match: true, on_diagnosis_mismatch: exclude}
+cohorts:
+  ADNI:
+    image_root: ./datasets/ADNI
+    metadata_csv: ./metadata/ADNI.csv
+    image_filename: MRI_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping: {1: male, 2: female, M: male, F: female}
+    columns: {id: [PTID, RID, subject_id], date: [EXAMDATE, VISDATE, date], sex: [PTGENDER, SEX, sex, gender], age: [AGE, age, AGE_YEARS], education: [PTEDUCAT, EDUCATION, education, EDU, EDUC], diagnosis: [DIAGNOSIS, DX, label]}
+  NACC:
+    image_root: ./datasets/NACC
+    metadata_csv: ./metadata/NACC.csv
+    image_filename: MRI_N4_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping: {1: male, 2: female, M: male, F: female}
+    columns: {id: [NACCID, PTID, subject_id], date: [date, EXAMDATE, VISDATE], sex: [SEX, sex, PTGENDER, gender], age: [AGE, age, AGE_YEARS], education: [EDUCATION, education, EDUC, EDU, EDUCATION_YEARS], diagnosis: [label, DIAGNOSIS, DX]}
+training:
+  epochs: 50
+  batch_size: 4
+  eval_batch_size: 2
+  num_workers: 0
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  class_weighted_ce: true
+model:
+  name: fmm_reference_encoder
+  channels: [8, 8, 16, 16, 32, 32, 64, 64, 128, 128]
+  pool_shape: [2, 3, 2]
+  classifier_hidden: 64
+  dropout: 0.5
+target_split: {adapt_ratio: 0.5, seed: 42}
+fmm:
+  lambda_low: 0.0
+  lambda_high: 1.0
+  lambda_domain: 1.0
+  lambda_attention: 1.0
+  lambda_intensity: 1.0
+  grl_coefficient: 1.0
+  intensity_transform: {scale_range: [0.8, 1.2], noise_std: 0.05}

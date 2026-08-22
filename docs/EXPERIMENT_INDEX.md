@@ -9,7 +9,7 @@ one plan and, once work is complete, one result record.
 | DS-035 | FMM raw-image UDA baseline | cyh | COMPLETED | [plan](plans/DS-035_FMM_BASELINE.md) | [results](results/DS-035/README.md) | 2026-08-19 |
 | DS-036 | Target-style transport + CAPM UDA probe | cyh | COMPLETED | [plan](plans/DS-036_TARGET_STYLE_CAPM_UDA.md) | [results](results/DS-036/README.md) | 2026-08-19 |
 | DS-037 | Amplitude transport mechanism audit | cyh | COMPLETED | [plan](plans/DS-037_AMPLITUDE_TRANSPORT_MECHANISM.md) | [results](results/DS-037/README.md) | 2026-08-20 |
-| DS-038 | Domain/intensity GRL factorial audit | cyh | PROPOSED | [plan](plans/DS-038_GRL_FACTORIAL_MECHANISM.md) | [results](results/DS-038/README.md) | 2026-08-19 |
+| DS-038 | Domain/intensity GRL factorial audit | cyh | BLOCKED | [plan](plans/DS-038_GRL_FACTORIAL_MECHANISM.md) | [results](results/DS-038/README.md) | 2026-08-19 |
 
 ## Status values
 
