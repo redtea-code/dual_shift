@@ -44,18 +44,38 @@ Seed-level target BA in seed order 42, 43, 44, 45, 46:
 
 Paired Δ BA versus G0: G1 `+0.0838, −0.1024, +0.0677, +0.0724, +0.0488`; G2 `+0.0949, −0.0898, −0.0331, +0.0389, +0.0410`; G3 `+0.0724, −0.0448, +0.1129, +0.1429, +0.0220`.
 
-## 4. Decision boundary
+## 4. Source-test results
+
+Source-test metrics are reported as a training-domain safeguard and were not used for checkpoint selection; source validation balanced accuracy remained the selector. Values are subject-level source-test BA and AUC, mean ± sample SD across seeds 42–46.
+
+| Variant | Source-test BA mean ± SD | Source-test AUC mean ± SD | Mean paired Δ BA vs G0 ± SD |
+|---|---:|---:|---:|
+| G0 `no_grl` | 0.5893 ± 0.0848 | 0.6466 ± 0.0899 | — |
+| G1 `domain_only` | 0.7000 ± 0.0699 | 0.7415 ± 0.0879 | +0.1107 ± 0.1046 |
+| G2 `intensity_only` | 0.6429 ± 0.0740 | 0.7184 ± 0.0804 | +0.0536 ± 0.0695 |
+| G3 `both_grl` | 0.6298 ± 0.0902 | 0.6990 ± 0.1140 | +0.0405 ± 0.0957 |
+
+Seed-level source-test BA in seed order 42, 43, 44, 45, 46:
+
+- G0: `0.4881, 0.6190, 0.6131, 0.7024, 0.5238`
+- G1: `0.7440, 0.7560, 0.5952, 0.7440, 0.6607`
+- G2: `0.6250, 0.6667, 0.5595, 0.7560, 0.6071`
+- G3: `0.6964, 0.6190, 0.6131, 0.7262, 0.4940`
+
+Paired source-test BA differences versus G0 are: G1 `+0.2560, +0.1369, −0.0179, +0.0417, +0.1369`; G2 `+0.1369, +0.0476, −0.0536, +0.0536, +0.0833`; G3 `+0.2083, 0.0000, 0.0000, +0.0238, −0.0298`. These source-test changes are not causal evidence and do not override the target-side exploratory decision rule.
+
+## 5. Decision boundary
 
 The registered exploratory rule requires a directionally consistent signal across seeds. No factorial cell is positive versus G0 in all five seeds. G1 is positive in four of five seeds, G2 in three of five, and G3 in four of five; therefore no isolated head or complementarity claim is supported by the paired BA rule. The higher G3 mean is not sufficient evidence of complementarity because its paired differences are not seed-consistent.
 
 This result does not support retaining a GRL head as an adopted module, does not authorize a fresh confirmatory holdout, and does not support scanner-, manufacturer-, or field-strength-causal language.
 
-## 5. Required-diagnostics gap
+## 6. Required-diagnostics gap
 
 The registered plan requires per-epoch and checkpoint-level domain/intensity discriminator loss, accuracy/AUC/balanced accuracy, GRL coefficient, gradient norm, source clean/shift CE, and feature discrepancy diagnostics. The implementation computed some head metrics in memory, but the final `summary.json` files do not contain a persisted `mechanism_diagnostics` field. Consequently, this is **not** a complete mechanism audit: the performance matrix and protocol boundary are verified, while discriminator/gradient mechanism evidence is unverified.
 
 The correct status is BLOCKED pending a diagnostic persistence fix and rerun of the affected matrix. The current 20 completed runs must not be presented as a fully verified DS-038 mechanism result.
 
-## 6. Provenance and next action
+## 7. Provenance and next action
 
 The outputs preserve resolved configs, source-selected checkpoint epochs, metrics, predictions, audit files, subject digests, and per-run configuration hashes. The next action is to persist the required diagnostics, run targeted tests against the saved schema, and rerun G0–G3 × seeds 42–46 before making a final mechanism attribution decision.
