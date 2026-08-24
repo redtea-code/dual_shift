@@ -120,3 +120,37 @@ def test_ds038_head_diagnostics_have_discriminator_and_gradient_fields():
     assert set(("loss", "accuracy", "balanced_accuracy", "auc", "gradient_norm", "grl_coefficient")) <= result.keys()
     assert result["gradient_norm"] == 0.25
     assert result["grl_coefficient"] == 1.0
+
+
+def test_ds038_mechanism_record_is_checkpoint_bound():
+    from experiments.train_fmm_baseline import _mechanism_record
+
+    record = _mechanism_record("domain", epoch=2, step=5, is_best_checkpoint=True, metrics={"loss": 0.4})
+    assert record == {"head": "domain", "epoch": 2, "step": 5, "is_best_checkpoint": True, "metrics": {"loss": 0.4}}
+
+
+def test_ds038_frozen_probe_is_label_blind_and_reports_alignment_metrics():
+    from experiments.train_fmm_baseline import _frozen_feature_domain_probe
+
+    source = torch.zeros(8, 4)
+    target = torch.ones(8, 4)
+    result = _frozen_feature_domain_probe(source, target, seed=7, epochs=3)
+    assert {"balanced_accuracy", "auc", "mmd", "source_norm", "target_norm"} <= result.keys()
+    assert result["mmd"] > 0.0
+
+
+def test_ds038_required_artifacts_detect_incomplete_run(tmp_path):
+    from experiments.train_fmm_baseline import _required_artifacts_complete
+
+    assert not _required_artifacts_complete(tmp_path)
+    for name in ("best.pt", "summary.json", "audit.json", "config.yaml", "predictions.json"):
+        (tmp_path / name).write_text("{}")
+    assert _required_artifacts_complete(tmp_path)
+
+
+def test_ds038_grl_gradient_probe_reverses_encoder_only():
+    from experiments.train_fmm_baseline import _grl_gradient_probe
+
+    result = _grl_gradient_probe(coefficient=1.0)
+    assert result["encoder_gradient_with_grl"] == -result["encoder_gradient_without_grl"]
+    assert result["discriminator_gradient_with_grl"] == result["discriminator_gradient_without_grl"]
