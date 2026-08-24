@@ -36,7 +36,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from Model.ablation.fmm_baseline import FMMNet
+from Model.ablation.fmm_baseline import FMMNet, GradientReversal
 from data.journal_dataset import build_journal_dataset
 from training.fmm_frequency import (
     intensity_transform,
@@ -140,6 +140,67 @@ def _head_diagnostics(logits: torch.Tensor, labels: torch.Tensor, *, gradient_no
     }
 
 
+def _grl_gradient_probe(*, coefficient: float = 1.0) -> dict[str, float]:
+    feature_with = torch.tensor([[1.0, -2.0]], requires_grad=True)
+    feature_without = feature_with.detach().clone().requires_grad_(True)
+    discriminator_with = nn.Linear(2, 1, bias=False)
+    discriminator_without = nn.Linear(2, 1, bias=False)
+    discriminator_without.load_state_dict(discriminator_with.state_dict())
+    labels = torch.ones(1, 1)
+    loss_with = F.binary_cross_entropy_with_logits(
+        GradientReversal(float(coefficient))(feature_with) @ discriminator_with.weight.t(), labels
+    )
+    loss_without = F.binary_cross_entropy_with_logits(
+        feature_without @ discriminator_without.weight.t(), labels
+    )
+    loss_with.backward(); loss_without.backward()
+    return {
+        "encoder_gradient_with_grl": float(feature_with.grad[0, 0]),
+        "encoder_gradient_without_grl": float(feature_without.grad[0, 0]),
+        "discriminator_gradient_with_grl": float(discriminator_with.weight.grad[0, 0]),
+        "discriminator_gradient_without_grl": float(discriminator_without.weight.grad[0, 0]),
+    }
+
+
+def _mechanism_record(head: str, *, epoch: int, step: int, is_best_checkpoint: bool, metrics: dict) -> dict:
+    return {"head": str(head), "epoch": int(epoch), "step": int(step), "is_best_checkpoint": bool(is_best_checkpoint), "metrics": metrics}
+
+
+def _module_grad_norm(module: nn.Module) -> float:
+    values = [parameter.grad.detach().norm() for parameter in module.parameters() if parameter.grad is not None]
+    return float(torch.stack(values).norm().cpu()) if values else 0.0
+
+
+def _frozen_feature_domain_probe(source: torch.Tensor, target: torch.Tensor, *, seed: int = 42, epochs: int = 25) -> dict[str, float]:
+    source = source.detach().float().cpu()
+    target = target.detach().float().cpu()
+    features = torch.cat((source, target), dim=0)
+    labels = torch.cat((torch.zeros(len(source)), torch.ones(len(target))))
+    order = torch.randperm(len(features), generator=torch.Generator().manual_seed(int(seed)))
+    probe = nn.Linear(features.shape[1], 1)
+    optimizer = torch.optim.Adam(probe.parameters(), lr=0.01)
+    for _ in range(int(epochs)):
+        logits = probe(features[order]).squeeze(1)
+        loss = F.binary_cross_entropy_with_logits(logits, labels[order])
+        optimizer.zero_grad(); loss.backward(); optimizer.step()
+    with torch.no_grad():
+        probabilities = torch.sigmoid(probe(features)).squeeze(1).numpy()
+    target_labels = labels.numpy().astype(np.int64)
+    predicted = (probabilities >= 0.5).astype(np.int64)
+    source_mean, target_mean = source.mean(0), target.mean(0)
+    return {
+        "balanced_accuracy": float(balanced_accuracy_score(target_labels, predicted)),
+        "auc": float(roc_auc_score(target_labels, probabilities)),
+        "mmd": float((source_mean - target_mean).pow(2).mean()),
+        "source_norm": float(source.norm(dim=1).mean()),
+        "target_norm": float(target.norm(dim=1).mean()),
+    }
+
+
+def _required_artifacts_complete(output: Path) -> bool:
+    return all((output / name).is_file() for name in ("best.pt", "summary.json", "audit.json", "config.yaml", "predictions.json"))
+
+
 def _make_loader(dataset, batch_size: int, *, shuffle: bool, workers: int, drop_last: bool = False):
     if len(dataset) == 0:
         raise ValueError("cannot create a loader for an empty split")
@@ -232,6 +293,7 @@ def _train_epoch(
     rng: torch.Generator,
     sampled_target_subjects: set[str],
     diagnostics: dict,
+    epoch: int = 0,
 ) -> dict[str, float]:
     model.train()
     losses = {"total": [], "classification": [], "domain": [], "attention": [], "intensity": []}
@@ -246,7 +308,7 @@ def _train_epoch(
     diagnostics.setdefault("intensity", [])
     intensity_cfg = fmm_cfg.get("intensity_transform", {}) or {}
     target_iterator = iter(target_loader) if target_loader is not None else None
-    for source_batch in source_loader:
+    for step, source_batch in enumerate(source_loader):
         source_images = _batch_images(source_batch, device)
         labels = source_batch["label"].to(device, non_blocking=True).long()
         optimizer.zero_grad(set_to_none=True)
@@ -277,7 +339,7 @@ def _train_epoch(
                 intensity_labels = torch.cat((torch.zeros(len(labels), device=device), torch.ones(len(labels), device=device)))
                 intensity_logits = model.domain_logits(intensity_features, coefficient=lambda_grl, head="intensity")
                 intensity_loss = F.binary_cross_entropy_with_logits(intensity_logits, intensity_labels)
-                diagnostics["intensity"].append({"metrics": _head_diagnostics(intensity_logits, intensity_labels, gradient_norm=0.0, coefficient=lambda_grl), "features": intensity_features})
+                diagnostics["intensity"].append(_mechanism_record("intensity", epoch=epoch, step=step, is_best_checkpoint=False, metrics=_head_diagnostics(intensity_logits, intensity_labels, gradient_norm=0.0, coefficient=lambda_grl)) | {"features": intensity_features})
             total = cls_loss + lambda_intensity * intensity_loss
             diagnostics.setdefault("source_stage", spectral_diagnostics(source_invariant[:1].detach()))
         else:
@@ -314,7 +376,7 @@ def _train_epoch(
                 domain_labels = torch.cat((torch.zeros(batch_size, device=device), torch.ones(batch_size, device=device)))
                 domain_logits = model.domain_logits(domain_features, coefficient=lambda_grl, head="domain")
                 domain_loss = F.binary_cross_entropy_with_logits(domain_logits, domain_labels)
-                diagnostics["domain"].append({"metrics": _head_diagnostics(domain_logits, domain_labels, gradient_norm=0.0, coefficient=lambda_grl), "features": domain_features})
+                diagnostics["domain"].append(_mechanism_record("domain", epoch=epoch, step=step, is_best_checkpoint=False, metrics=_head_diagnostics(domain_logits, domain_labels, gradient_norm=0.0, coefficient=lambda_grl)) | {"features": domain_features})
             if flags["attention"]:
                 attention_loss = F.mse_loss(source_out["attention"], target_out["attention"])
             total = total + lambda_domain * domain_loss + lambda_attention * attention_loss
@@ -325,7 +387,9 @@ def _train_epoch(
                 entry = diagnostics[head_name][-1]
                 features = entry.pop("features", None)
                 if features is not None and features.grad is not None:
-                    entry["metrics"]["gradient_norm"] = float(features.grad.detach().norm().cpu())
+                    entry["metrics"]["shared_encoder_feature_gradient_norm"] = float(features.grad.detach().norm().cpu())
+                head_module = model.domain_discriminator if head_name == "domain" else model.intensity_discriminator
+                entry["metrics"]["discriminator_parameter_gradient_norm"] = _module_grad_norm(head_module)
         optimizer.step()
         losses["total"].append(float(total.detach().cpu()))
         losses["classification"].append(float(cls_loss.detach().cpu()))
@@ -427,6 +491,7 @@ def run(config: dict, direction: str, output_dir: str, *, variant: str, device: 
             rng=rng,
             sampled_target_subjects=sampled_target_subjects,
             diagnostics=diagnostics,
+            epoch=epoch,
         )
         val_metrics, _ = evaluate(model, val_loader, device_obj)
         record = {"epoch": epoch, "losses": losses, "source_val": val_metrics}
@@ -439,6 +504,20 @@ def run(config: dict, direction: str, output_dir: str, *, variant: str, device: 
     if best_path.exists():
         checkpoint = torch.load(best_path, map_location=device_obj, weights_only=False)
         model.load_state_dict(checkpoint["model"])
+    for head_name in ("domain", "intensity"):
+        for record in diagnostics.get(head_name, []):
+            record["is_best_checkpoint"] = record["epoch"] == best_epoch
+    @torch.no_grad()
+    def _loader_features(loader):
+        if loader is None:
+            return torch.empty((0, model.feature_dim))
+        model.eval(); values = []
+        for batch in loader:
+            values.append(model.encode(_batch_images(batch, device_obj))[0].cpu())
+        return torch.cat(values) if values else torch.empty((0, model.feature_dim))
+    source_features = _loader_features(source_loader)
+    target_features = _loader_features(target_loader)
+    frozen_probe = _frozen_feature_domain_probe(source_features, target_features, seed=int(config.get("seed", 42))) if len(target_features) else None
     source_val_metrics, source_val_rows = evaluate(model, val_loader, device_obj)
     source_test_metrics, source_test_rows = evaluate(model, source_test_loader, device_obj)
     target_test_metrics, target_test_rows = evaluate(model, target_test_loader, device_obj)
@@ -450,6 +529,8 @@ def run(config: dict, direction: str, output_dir: str, *, variant: str, device: 
         "source_test": source_test_metrics,
         "target_test": target_test_metrics,
         "history": history,
+        "mechanism_diagnostics": {key: diagnostics.get(key, []) for key in ("domain", "intensity")},
+        "frozen_feature_domain_probe": frozen_probe,
     }
     audit = {
         "git_commit": _git_commit(),
@@ -474,7 +555,8 @@ def run(config: dict, direction: str, output_dir: str, *, variant: str, device: 
         },
         "sampled_target_subject_ids": sorted(sampled_target_subjects),
         "spectral_diagnostics": {key: value for key, value in diagnostics.items() if key not in {"domain", "intensity"}},
-        "mechanism_diagnostics": {key: [entry["metrics"] for entry in diagnostics.get(key, [])] for key in ("domain", "intensity")},
+        "mechanism_diagnostics": {key: diagnostics.get(key, []) for key in ("domain", "intensity")},
+        "frozen_feature_domain_probe": frozen_probe,
         "split_sizes": {
             "source_train": int(len(source_train)),
             "source_val": int(len(source_val)),
@@ -483,6 +565,7 @@ def run(config: dict, direction: str, output_dir: str, *, variant: str, device: 
             "target_test": int(len(target_test)),
         },
     }
+    (output / "status.json").write_text(json.dumps({"status": "writing", "variant": variant, "seed": int(config.get("seed", 42))}, indent=2), encoding="utf-8")
     (output / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     (output / "audit.json").write_text(json.dumps(audit, indent=2), encoding="utf-8")
@@ -490,6 +573,9 @@ def run(config: dict, direction: str, output_dir: str, *, variant: str, device: 
         json.dumps({"source_val": source_val_rows, "source_test": source_test_rows, "target_test": target_test_rows}, indent=2),
         encoding="utf-8",
     )
+    if not _required_artifacts_complete(output):
+        raise RuntimeError("run completed without all required DS-038 artifacts")
+    (output / "status.json").write_text(json.dumps({"status": "complete", "variant": variant, "seed": int(config.get("seed", 42)), "best_epoch": int(best_epoch)}, indent=2), encoding="utf-8")
     return {"summary": summary, "audit": audit}
 
 
