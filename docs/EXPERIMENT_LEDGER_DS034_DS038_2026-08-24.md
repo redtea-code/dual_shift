@@ -101,53 +101,123 @@ DS-037 将 target-style transport 拆为六种条件：
 
 AT3 在三个 seed 均低于 AT0，paired BA 差为 `−0.0741`、`−0.0565`、`−0.0381`。AT1、AT2、AT4、AT5 的 seed 方向不一致，不能用孤立 seed 或 AUC 正值覆盖 BA 的预设判断规则。因此 DS-037 对 strength/phase 选择为 NO-GO。
 
-### DS-038：domain/intensity GRL factorial
+### DS-038：Domain/Intensity GRL Factorial Audit
 
-DS-038 的设计是将 B1c 的联合 GRL 消融拆成四种互相独立的条件：
+DS-038 将 FMM 的联合 GRL 消融拆分为四个条件：
 
-- G0：domain 和 intensity GRL 均关闭；
-- G1：仅 domain GRL；
-- G2：仅 intensity GRL；
-- G3：两个 GRL 均打开。
+- **G0 `no_grl`**：domain/intensity GRL 均关闭；
+- **G1 `domain_only`**：仅 domain GRL 开启；
+- **G2 `intensity_only`**：仅 intensity GRL 开启；
+- **G3 `both_grl`**：两个 GRL head 均开启。
 
-诊断实现目前能够保存：
+统一状态符号：
 
-- 每个 head 的 loss、accuracy、balanced accuracy、AUC；
-- GRL coefficient；
-- shared encoder feature gradient norm；
-- discriminator parameter gradient norm；
-- epoch、step、`is_best_checkpoint`；
-- frozen-feature domain probe 的 BA、AUC、MMD proxy 和 feature norm。
+- `※`：尚未完成、当前目录缺失完整 artifact、仅有历史提取值，或不能形成可复核的完整统计；
+- `✓`：当前 artifact 集合已通过基本完整性检查；
+- `⚠`：虽然有 artifact，但该结果仍属于 exploratory/interim，不能支持正式采用或机制因果结论。
 
-#### MCI–AD，ADNI→NACC
+所有 DS-038 target 结果均来自历史使用过的内部 holdout，不能作为新的 confirmatory claim。三组实验分别报告，不跨任务或方向合并。
 
-原注册矩阵为 G0–G3 × seeds42–46，共 20 个 cells，目前仅 9/20 可验证。common seeds42/43 的 screening 结果为：
+#### A. MCI–AD，ADNI→NACC
 
-| Variant | Target BA mean ± SD | Δ BA vs G0 |
-|---|---:|---:|
-| G0 | 0.5853 ± 0.0350 | — |
-| G1 | 0.6601 ± 0.0392 | +0.0748 ± 0.0043 |
-| G2 | 0.5452 ± 0.0136 | −0.0401 ± 0.0486 |
-| G3 | 0.5496 ± 0.0051 | −0.0357 ± 0.0298 |
+**协议与矩阵。** 任务为 MCI vs AD，方向为 ADNI 1.5T → NACC 3T，原注册矩阵为 G0–G3 × seeds 42–46，共 20 cells。当前可复核的性能矩阵为 **9/20**；common seeds 42/43 的四个 variant 均有结果，G0 另有 seed44。其余单元统一记为 `※`，不能写成完整五-seed factorial 结果。
 
-G1 的 target BA 在两个 common seeds 均高于 G0，但完整注册矩阵缺失，且 frozen probe 没有显示跨 seed 的稳定单调降低。因此当前只能称为 screening signal，不能称为 domain GRL 候选已被验证。
+| Variant | 可复核 seeds | Target BA mean ± SD | Target AUC mean ± SD | Source-test BA mean ± SD | 状态 |
+|---|---|---:|---:|---:|---|
+| G0 `no_grl` | 42, 43（44 另有结果） | 0.5853 ± 0.0350 | 0.6763 ± 0.1188 | 0.6250 ± 0.0337 | ⚠ interim |
+| G1 `domain_only` | 42, 43 | 0.6601 ± 0.0392 | 0.8114 ± 0.0089 | 0.6786 ± 0.0000 | ⚠ screening |
+| G2 `intensity_only` | 42, 43 | 0.5452 ± 0.0136 | 0.7643 ± 0.0507 | 0.6667 ± 0.0505 | ⚠ screening |
+| G3 `both_grl` | 42, 43 | 0.5496 ± 0.0051 | 0.7218 ± 0.0054 | 0.5982 ± 0.0042 | ⚠ screening |
+| 缺失注册单元 | `※` seeds/cells not independently verifiable | `※` | `※` | `※` | BLOCKED |
 
-#### NC–MCI，ADNI→NACC
+common-seed paired target BA relative to G0：
 
-该扩展使用 seeds42/43、8 个 cells，label contract 为 `{1:NC, 2:MCI}` → `{0:NC, 1:MCI}`，positive class 为 MCI。当前八个 artifact 均已存在：
+| Comparison | Seed-level Δ BA | Mean Δ BA ± SD | Interpretation |
+|---|---|---:|---|
+| G1 − G0 | `+0.0717`, `+0.0778` | `+0.0748 ± 0.0043` | 两个 common seeds 均为正，但仅为 two-seed screening |
+| G2 − G0 | `−0.0057`, `−0.0745` | `−0.0401 ± 0.0486` | 负向 |
+| G3 − G0 | `−0.0146`, `−0.0568` | `−0.0357 ± 0.0298` | 负向 |
 
-| Variant | Target BA mean ± SD | Δ BA vs G0 |
-|---|---:|---:|
-| G0 | 0.5537 ± 0.0167 | — |
-| G1 | 0.5722 ± 0.0150 | +0.0185 ± 0.0017 |
-| G2 | 0.5740 ± 0.0119 | +0.0203 ± 0.0048 |
-| G3 | 0.5742 ± 0.0117 | +0.0205 ± 0.0284 |
+**机制诊断。** 已持久化的诊断包括 head loss/accuracy/BA/AUC、GRL coefficient、shared encoder feature gradient norm、discriminator parameter gradient norm、epoch/step/best-checkpoint binding，以及 frozen-feature domain probe。可复核的 probe 摘要如下：
 
-这些数字显示两 seed 下四种设置的 target BA 差异都较小。G3 没有稳定超过单头 variants；AUC 差异也不一致，故不能支持两个 GRL head 的互补性或采用结论。
+| Variant / seed | Frozen probe BA | Frozen probe AUC | MMD proxy | 结论 |
+|---|---:|---:|---:|---|
+| G0 / 42 | 0.8579 | 0.9308 | 0.3232 | reference |
+| G0 / 43 | 0.8118 | 0.8859 | 0.1044 | reference |
+| G1 / 42 | 0.8165 | 0.9000 | 0.2500 | probe BA/AUC 下降 |
+| G1 / 43 | 0.8272 | 0.9251 | 0.2667 | 未显示同方向稳定下降 |
+| G2 / 42 | 0.8606 | 0.9398 | 0.5166 | separability 未改善 |
+| G2 / 43 | 0.8112 | 0.9520 | 0.8672 | separability 未改善 |
+| G3 / 42 | 0.8275 | 0.9252 | 0.1987 | 部分指标下降 |
+| G3 / 43 | 0.8473 | 0.9314 | 0.1571 | 不能形成稳定机制证据 |
 
-#### MCI–AD，NACC→ADNI
+结论：G1 在两个 common seeds 的 target BA 均高于 G0，但完整注册矩阵缺失，且 frozen probe 没有稳定、单调的跨 seed 下降。因此 G1 只能称为 **screening signal**，不能称为已验证的 domain GRL 候选。G2/G3 不支持正向采用。
 
-这是一个方向扩展，不应与 ADNI→NACC 汇总。当前稳定 output root 只能验证 seed42/43 的 G0/G3，共 4/8 个 cells。历史 extraction snapshot 中记录的相对 G0 差异为：G1 `−0.0174`、G2 `−0.0069`、G3 `−0.0250`，但 G1/G2 缺少当前可复核 artifacts，因此报告必须保持 interim/block 状态。
+#### B. NC–MCI，ADNI→NACC
+
+**协议与标签。** 该扩展沿用 DS-038 的四种 GRL 条件，任务改为 NC vs MCI：raw diagnosis `{1: NC, 2: MCI}`，model label `{0: NC, 1: MCI}`，positive class 为 MCI。注册 seeds 为 42/43，共 8 cells。当前 output root 的 8 cells 均具备 `best.pt`、`summary.json`、`audit.json`、`config.yaml`、`predictions.json`、`status.json=complete`，因此 artifact completion 为 **8/8 ✓**；但统计功效仍只有 two-seed，整体状态为 `⚠ interim`。
+
+官方 artifact summary（按报告原有 subject-level 指标）：
+
+| Variant | Seeds | Target BA mean ± SD | Target AUC mean ± SD | Source-test BA mean ± SD | 状态 |
+|---|---|---:|---:|---:|---|
+| G0 `no_grl` | 42, 43 | 0.5537 ± 0.0167 | 0.6106 ± 0.0215 | 0.6734 ± 0.0505 | ⚠ |
+| G1 `domain_only` | 42, 43 | 0.5722 ± 0.0150 | 0.6165 ± 0.0075 | 0.6403 ± 0.0395 | ⚠ |
+| G2 `intensity_only` | 42, `※`43 | 0.5656 | 0.6189 | 0.5893 | `※` single-seed summary in the contemporaneous report |
+| G3 `both_grl` | 42, `※`43 | 0.5825 | 0.6256 | 0.6205 | `※` single-seed summary in the contemporaneous report |
+
+原报告记录的 common-seed paired BA：G1 seed42 `+0.0197`、seed43 `+0.0173`，均值 `+0.0185 ± 0.0017`；G2/G3 当时只有 seed42 common comparison，分别为 `+0.0237` 与 `+0.0406`，这些单 seed 差值统一标记为 `※`，不能当作稳定改善。
+
+基于当前可读取的两 seed raw predictions 重新计算的五项指标如下。该表与官方 summary 的 BA/AUC 存在轻微口径差异，故只作为统一五指标复核：
+
+| Variant | BA mean ± SD | AUROC mean ± SD | Macro-F1 mean ± SD | Sensitivity mean ± SD | Specificity mean ± SD |
+|---|---:|---:|---:|---:|---:|
+| G0 `no_grl` | 0.5538 ± 0.0188 | 0.6118 ± 0.0218 | 0.5461 ± 0.0280 | 0.2215 ± 0.0382 | 0.8862 ± 0.0005 |
+| G1 `domain_only` | 0.5738 ± 0.0161 | 0.6163 ± 0.0062 | 0.5651 ± 0.0067 | 0.4861 ± 0.0668 | 0.6615 ± 0.0346 |
+| G2 `intensity_only` | 0.5725 ± 0.0081 | 0.6126 ± 0.0100 | 0.5739 ± 0.0092 | 0.3848 ± 0.0214 | 0.7602 ± 0.0377 |
+| G3 `both_grl` | 0.5715 ± 0.0120 | 0.6104 ± 0.0231 | 0.5725 ± 0.0139 | 0.3053 ± 0.0632 | 0.8378 ± 0.0392 |
+
+五指标解释：G1 的 BA 增益主要来自 Sensitivity 上升，同时 Specificity 明显下降；G2 的 BA/Macro-F1 改善伴随同样的类别权衡；G3 没有稳定超过单头 variants，AUROC 也未同步改善。因此 NC–MCI 的正向结果不能仅解释为 GRL 机制成功。
+
+**机制与审计。** 8/8 artifact 均应以完整 artifact 为准；当前报告性诊断中已记录 target-label blind、source-validation checkpoint、persisted mechanism diagnostics 和 frozen-feature probe。可直接复核的早期 interim probe 摘要显示：G1 的 probe BA/AUC 在 seed42 低于 G0、在 seed43 高于 G0；G2/G3 的机制方向曾只有单 seed 可用，统一记为 `※`。因此 NC–MCI 仍为 **two-seed interim screening**，不支持采用 domain GRL、intensity GRL 或互补性结论。
+
+#### C. MCI–AD，NACC→ADNI
+
+**协议偏离。** 这是方向扩展，不是原注册矩阵：NACC 3T → ADNI 1.5T，MCI vs AD，seeds 42/43，G0–G3 共 8 cells。AD 为 positive class。该方向必须与 ADNI→NACC 分开报告。
+
+当前稳定 output root 的 contemporaneous report 只确认 G0/G3 的 4/8 cells；G1/G2 的完整 artifact 在该报告中被标记为缺失，因此本节对官方可复核性使用统一 `※`。另一个本地运行目录目前可见 8/8 个 artifact 集合，但尚未完成与 interim report 一致的 provenance/diagnostic schema 复核；这些额外文件不自动升级正式状态。
+
+官方 interim performance snapshot：
+
+| Variant | 官方可复核状态 | Target BA mean ± SD | Target AUC mean ± SD | Source-test BA mean ± SD | 状态 |
+|---|---|---:|---:|---:|---|
+| G0 `no_grl` | 42,43 | 0.6099 ± 0.0419 | 0.6528 ± 0.0386 | 0.8024 ± 0.0690 | ⚠ |
+| G1 `domain_only` | `※` 历史提取，当前报告缺失 | 0.5925 ± 0.0460 | 0.6553 ± 0.0324 | 0.7948 ± 0.0494 | `※` |
+| G2 `intensity_only` | `※` 历史提取，当前报告缺失 | 0.6030 ± 0.0743 | 0.6641 ± 0.1035 | 0.8014 ± 0.0205 | `※` |
+| G3 `both_grl` | 42,43 | 0.5849 ± 0.0163 | 0.6267 ± 0.0557 | 0.8028 ± 0.0213 | ⚠ |
+
+官方 paired target BA relative to G0：G1 `−0.0144, −0.0203`，mean `−0.0174 ± 0.0042`；G2 `+0.0160, −0.0299`，mean `−0.0069 ± 0.0324`；G3 `−0.0430, −0.0069`，mean `−0.0250 ± 0.0255`。其中 G1/G2 的完整可复核性统一为 `※`，历史数值不得当作当前稳定 artifact 的完整 factorial 结论。
+
+若仅查看当前本地 predictions 的统一五指标重算快照，结果为：
+
+| Variant | BA mean ± SD | AUROC mean ± SD | Macro-F1 mean ± SD | Sensitivity mean ± SD | Specificity mean ± SD |
+|---|---:|---:|---:|---:|---:|
+| G0 `no_grl` | 0.6113 ± 0.0319 | 0.6559 ± 0.0315 | 0.5957 ± 0.0464 | 0.8281 ± 0.1865 | 0.3944 ± 0.2503 |
+| G1 `domain_only` | 0.6184 ± 0.0550 | 0.6792 ± 0.0603 | 0.6128 ± 0.0745 | 0.9030 ± 0.0240 | 0.3339 ± 0.1340 |
+| G2 `intensity_only` | 0.6271 ± 0.0911 | 0.6780 ± 0.1025 | 0.6075 ± 0.1270 | 0.9044 ± 0.0975 | 0.3499 ± 0.2796 |
+| G3 `both_grl` | 0.6221 ± 0.0340 | 0.6455 ± 0.0631 | 0.6251 ± 0.0394 | 0.8690 ± 0.0599 | 0.3753 ± 0.0081 |
+
+上述五指标表仅是当前本地 predictions 的计算快照，与官方 interim report 的 BA/AUC 不完全一致；因此不替代官方表，也不解除 G1/G2 的 `※` 状态。方向性上，GRL variants 的 Sensitivity 较高但 Specificity 较低，表现为明显的分类阈值权衡。
+
+**机制诊断与最终边界。** NACC→ADNI interim report 记录了：best-checkpoint-bound head records、GRL coefficient=1.0、shared encoder/discriminator gradient norms，以及 frozen-feature probe。G1 在 seed42 的 probe BA/AUC 下降、seed43 未下降；G2 的 probe 方向跨 seed 反转；G3 的 probe AUC 两 seed 下降但 MMD 混合，且 target BA 低于 G0。故当前不支持保留 domain GRL、intensity GRL 或其互补性。由于该方向的协议偏离和 artifact 复核不完整，统一标记为 `※ interim/block`。
+
+#### D. DS-038 统一结论
+
+1. **MCI–AD ADNI→NACC**：G1 在 common seeds 的 target BA 有正向 screening signal，但注册矩阵不完整，不能形成五-seed factorial 结论。
+2. **NC–MCI ADNI→NACC**：8/8 artifact 已存在，但只有两 seed；G1/G2/G3 的 BA 增益伴随 Sensitivity/Specificity trade-off，不能据此采用 GRL。
+3. **MCI–AD NACC→ADNI**：方向和 seed 数均为扩展协议；G1/G2 的正式可复核状态用 `※` 表示，已有 paired 结果不支持稳定 GRL 增益。
+4. 三组实验均不支持 scanner、manufacturer 或 field-strength 的因果解释，也不支持把不同任务/方向合并为一个 DS-038 总体效果。
+5. 在所有 `※` 单元恢复并完成统一 schema、provenance、checkpoint binding 和 paired statistics 之前，DS-038 总体状态保持 **BLOCKED / INTERIM**。
 
 ## 四、审计与统一解释边界
 
@@ -173,6 +243,63 @@ G1 的 target BA 在两个 common seeds 均高于 G0，但完整注册矩阵缺�
 - “某个 GRL head 在所有方向、任务和 seed 上稳定有效”；
 - “双向平均证明方法对所有未见协议均有效”；
 - “target BA 的均值优势自动等于机制成功”。
+
+## 五、正向增益实验的五项分类指标复核
+
+为避免仅依据 target BA 判断“正向增益”，对可读取的原始 `predictions.json` 进行了统一复核。除特别说明外，采用以下口径：同一 subject 的多次扫描先对预测概率取均值；以 `probability >= 0.5` 转换为类别；跨 seed 报告均值 ± 样本标准差（SD）；不合并不同任务、方向或数据集。五项常用指标为：
+
+1. **Balanced Accuracy（BA）**：`(Sensitivity + Specificity) / 2`，本项目的主指标，适合类别不均衡场景。
+2. **AUROC**：衡量模型对正负样本的整体排序能力，不依赖单一分类阈值。
+3. **Macro-F1**：正类与负类 F1 的平均值，用于同时考察两类的识别质量。
+4. **Sensitivity（Recall / TPR）**：`TP / (TP + FN)`，表示正类被正确识别的比例。
+5. **Specificity（TNR）**：`TN / (TN + FP)`，表示负类被正确识别的比例。
+
+### DS-035：FMM 正向增益
+
+DS-035 为 MCI–AD、ADNI→NACC、seeds 42–44。以下为从原始 target predictions 按 subject 聚合后重算的结果：
+
+| Variant | BA mean ± SD | AUROC mean ± SD | Macro-F1 mean ± SD | Sensitivity mean ± SD | Specificity mean ± SD |
+|---|---:|---:|---:|---:|---:|
+| B0-ref | 0.5769 ± 0.0417 | 0.6952 ± 0.0465 | 0.5421 ± 0.0707 | 0.2841 ± 0.2853 | 0.8696 ± 0.2090 |
+| B1-fmm | 0.6069 ± 0.0192 | 0.7805 ± 0.0174 | 0.5919 ± 0.0214 | 0.2641 ± 0.0642 | 0.9498 ± 0.0321 |
+| B1a-no-source-fft | 0.6120 ± 0.0701 | 0.7821 ± 0.0581 | 0.5909 ± 0.1038 | 0.2804 ± 0.1661 | 0.9435 ± 0.0413 |
+
+相对 B0，B1 的重算结果在 BA、AUROC、Macro-F1 和 Specificity 上为正，但 Sensitivity 略低；因此其增益主要体现为整体排序能力和负类识别改善，而不是两类 Recall 同步改善。B1a 的均值也为正，但跨 seed 波动更大，不能作为稳定替代方案。
+
+官方 DS-035 汇总报告中的 B1 target BA 为 `0.6131 ± 0.0166`，本节按原始预测重新计算的结果为 `0.6069 ± 0.0192`。该差异说明官方 summary 与本次 subject 聚合/汇总口径并不完全相同；正式结论应保留官方产物值，并将本节作为统一五指标的独立复核，不应混合两种口径进行统计推断。
+
+### DS-034：C4 full frequency UDA
+
+C4 相对 C0 的 ADNI→NACC、MCI–AD、seeds 43/44 描述性结果为：
+
+| Variant | BA mean ± SD | AUROC mean ± SD | Macro-F1 mean ± SD | Sensitivity mean ± SD | Specificity mean ± SD |
+|---|---:|---:|---:|---:|---:|
+| C0 baseline | 0.670 ± 0.042 | 0.784 ± 0.002 | 0.678 ± 0.042 | 0.428 ± 0.123 | 0.911 ± 0.038 |
+| C4 full UDA | 0.693 ± 0.051 | 0.825 ± 0.009 | 0.703 ± 0.048 | 0.469 ± 0.165 | 0.916 ± 0.063 |
+| C4 − C0 | +0.023 | +0.040 | +0.025 | +0.041 | +0.005 |
+
+五项指标的点估计均为正，但 paired bootstrap uncertainty 跨 0；因此 C4 只能描述为正向点估计，不能升级为稳定增益结论。另有 ECE 变差，说明分类性能点估计改善不等于概率校准改善。
+
+### DS-038：NC–MCI 正向筛查
+
+NC–MCI、ADNI→NACC、seeds 42/43 的原始 predictions 复核如下：
+
+| Variant | BA mean ± SD | AUROC mean ± SD | Macro-F1 mean ± SD | Sensitivity mean ± SD | Specificity mean ± SD |
+|---|---:|---:|---:|---:|---:|
+| G0 no-GRL | 0.5538 ± 0.0188 | 0.6118 ± 0.0218 | 0.5461 ± 0.0280 | 0.2215 ± 0.0382 | 0.8862 ± 0.0005 |
+| G1 domain-only | 0.5738 ± 0.0161 | 0.6163 ± 0.0062 | 0.5651 ± 0.0067 | 0.4861 ± 0.0668 | 0.6615 ± 0.0346 |
+| G2 intensity-only | 0.5725 ± 0.0081 | 0.6126 ± 0.0100 | 0.5739 ± 0.0092 | 0.3848 ± 0.0214 | 0.7602 ± 0.0377 |
+| G3 both-GRL | 0.5715 ± 0.0120 | 0.6104 ± 0.0231 | 0.5725 ± 0.0139 | 0.3053 ± 0.0632 | 0.8378 ± 0.0392 |
+
+G1 的 BA 增益主要来自 Sensitivity 上升，同时 Specificity 明显下降；G2 的 BA 与 Macro-F1 提升也伴随 Sensitivity/Specificity 权衡；G3 没有稳定超过单头 variants，AUROC 亦未显示同步改善。因此这些结果更接近 threshold trade-off，而不是所有分类质量维度共同改善。
+
+### 五指标综合判断
+
+- **较完整的正向信号：DS-035 B1。** BA、AUROC、Macro-F1 和 Specificity 同时改善，但 Sensitivity 没有改善；应称为探索性 FMM 信号，而不是全面分类性能提升。
+- **点估计正向但不稳定：DS-035 B1a、DS-034 C4。** B1a 的 seed 波动较大，C4 的 paired uncertainty 跨 0，均不满足直接采用条件。
+- **存在类别权衡：DS-038 NC–MCI G1/G2/G3。** BA 上升伴随 Sensitivity 与 Specificity 此消彼长，不能只依据 BA 均值宣称 GRL 有效。
+
+后续实验报告应固定同时呈现 `BA + AUROC + Macro-F1 + Sensitivity + Specificity`，并附 seed-level 数值、mean ± SD、相对 matched baseline 的 paired difference，以及 Sensitivity/Specificity 是否发生方向性偏移。
 
 ## 五、推荐后续动作
 
