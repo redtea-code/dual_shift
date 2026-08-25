@@ -114,14 +114,13 @@ biology language without separate probes and paired evidence.
 
 ## Implementation location
 
-The minimal implementation was developed in the companion checkout
-`D:\ADNI\dual_shift_plan34_main`:
+The minimal implementation is included in this branch:
 
 - `Model/ablation/residual_adaptation.py`
 - `experiments/build_capm_residual_stats.py`
 - `experiments/run_capm_residual_pilot.py`
 - `tests/test_capm_residual_adaptation.py`
 
-The authoritative maintenance checkout currently records this experiment and
-its provenance; the implementation must be committed and linked before DS-039
-can be marked `COMPLETED`.
+The implementation is a frozen-checkpoint pilot only. It must not be marked
+`COMPLETED` until a real ADNI/NACC run, output hashes, and the required
+preservation/discrepancy audits are archived.

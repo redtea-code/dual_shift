@@ -7,9 +7,8 @@ Plan: [DS-039 plan](../../plans/DS-039_CAPM_CONDITIONED_RESIDUAL_ADAPTATION.md)
 ## 1. Current evidence state
 
 DS-039 currently has a code-level pilot and no real ADNI/NACC performance
-result. The implementation is in the companion checkout
-`D:\ADNI\dual_shift_plan34_main`; the authoritative maintenance checkout has
-not yet received an implementation commit or a dataset run artifact.
+result. The implementation is included in this branch, but no dataset run
+artifact has been produced.
 
 Therefore this record must not be read as evidence that the proposed module
 improves target performance. Its current status is `RUNNING`, not
@@ -70,11 +69,11 @@ separately from the label-free adaptation stage.
 - no source/target residual discrepancy or CAPM-anchor drift is available;
 - no source-preservation or sensitivity/specificity audit is available;
 - no seed comparison or target performance conclusion is available;
-- no implementation commit has been attached to the authoritative checkout.
+- no real dataset run artifact has been attached to this result record.
 
 ## 6. Required next action
 
-Run the builder and evaluator on one matched `layer4_pixel` original-CAPM
+Run the included builder and evaluator on one matched `layer4_pixel` original-CAPM
 checkpoint for `ADNI_to_NACC`, archive the split/statistics/report hashes, and
 then update this record with RA0/RA1/RA-D evidence. Only after the source and
 target audits pass should a second seed or a cross-scale/low-rank extension be
