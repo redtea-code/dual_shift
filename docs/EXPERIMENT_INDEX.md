@@ -10,6 +10,7 @@ one plan and, once work is complete, one result record.
 | DS-036 | Target-style transport + CAPM UDA probe | cyh | COMPLETED | [plan](plans/DS-036_TARGET_STYLE_CAPM_UDA.md) | [results](results/DS-036/README.md) | 2026-08-19 |
 | DS-037 | Amplitude transport mechanism audit | cyh | COMPLETED | [plan](plans/DS-037_AMPLITUDE_TRANSPORT_MECHANISM.md) | [results](results/DS-037/README.md) | 2026-08-20 |
 | DS-038 | Domain/intensity GRL factorial audit | cyh | BLOCKED | [plan](plans/DS-038_GRL_FACTORIAL_MECHANISM.md) | [results](results/DS-038/README.md) | 2026-08-19 |
+| DS-039 | CAPM-conditioned residual adaptation pilot | cyh | RUNNING | [plan](plans/DS-039_CAPM_CONDITIONED_RESIDUAL_ADAPTATION.md) | [results](results/DS-039/README.md) | 2026-08-25 |
 
 ## Status values
 
