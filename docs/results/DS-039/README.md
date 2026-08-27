@@ -29,7 +29,7 @@ and defaults to `max_strength=0.25`. `layer4_pixel` is fixed so that changing
 feature size is not presented as the novelty; the functional division is the
 CAPM diagnostic-support anchor followed by residual batch correction.
 
-Implemented entry points in the companion checkout:
+Implemented entry points included in this branch:
 
 - `Model/ablation/residual_adaptation.py`
 - `experiments/build_capm_residual_stats.py`
