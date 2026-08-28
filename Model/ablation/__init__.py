@@ -28,6 +28,20 @@ from .capm_frequency_grl import (
     compute_capm_frequency_losses,
     make_frequency_batch,
 )
+from .capm_residual_distribution_alignment import (
+    CAPMResidualDistributionAlignment3D,
+    RESIDUAL_DISTRIBUTION_STATS_SCHEMA,
+    RESIDUAL_DISTRIBUTION_TARGET_SPLIT_SCHEMA,
+    ResidualDistributionStats,
+    ResidualDistributionTransport3D,
+    SubjectResidualAccumulator,
+    apply_bounded_intensity_perturbation,
+    apply_fourier_amplitude_perturbation,
+    audit_synthetic_perturbation,
+    build_residual_distribution_stats_from_loaders,
+    load_task_support_projector_artifact,
+    save_residual_distribution_target_split,
+)
 
 from .frequency_uda import (
     DomainGuidedFrequencyGate3D,
@@ -76,4 +90,16 @@ __all__ = [
     "TaskSupportProjector",
     "compute_capm_frequency_losses",
     "make_frequency_batch",
+    "CAPMResidualDistributionAlignment3D",
+    "RESIDUAL_DISTRIBUTION_STATS_SCHEMA",
+    "RESIDUAL_DISTRIBUTION_TARGET_SPLIT_SCHEMA",
+    "ResidualDistributionStats",
+    "ResidualDistributionTransport3D",
+    "SubjectResidualAccumulator",
+    "apply_bounded_intensity_perturbation",
+    "apply_fourier_amplitude_perturbation",
+    "audit_synthetic_perturbation",
+    "build_residual_distribution_stats_from_loaders",
+    "load_task_support_projector_artifact",
+    "save_residual_distribution_target_split",
 ]
