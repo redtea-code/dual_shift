@@ -29,6 +29,29 @@ from .capm_frequency_grl import (
     make_frequency_batch,
 )
 
+from .frequency_uda import (
+    DomainGuidedFrequencyGate3D,
+    FeatureSpectrumAccumulator,
+    FrequencyGuidedScaleTable3D,
+    FrequencyPrior,
+    build_frequency_guided_model,
+)
+
+from .frequency_mixstyle import (
+    MIX_MODES,
+    FrequencyMixStyle3D,
+    FrequencyMixStyleScaleTable3D,
+    build_frequency_mixstyle_model,
+)
+
+from .raw_frequency_skip import (
+    RAW_SKIP_STAGES,
+    RawFrequencySkip3D,
+    RawFrequencySkipScaleTable3D,
+    build_raw_frequency_skip_model,
+    extract_raw_frequency_features,
+)
+
 __all__ = [
     "ABLATION_PRESETS",
     "OriginalPatchwiseCAPM",
