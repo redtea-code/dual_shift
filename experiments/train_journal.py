@@ -45,6 +45,7 @@ from data.journal_dataset import (
     JournalManifestDataset,
     JournalNiftiDataset,
     JournalSubset,
+    UnlabeledJournalSubset,
     build_journal_dataset,
 )
 from Model.backbone.journal_resnet import journal_resnet10, journal_resnet18
@@ -91,6 +92,8 @@ from experiments.apic_v3_protocol import (
     apic_v3_2_variant_spec,
     config_fingerprint,
 )
+from training.cmrp_uda_loop import run_cmrp_eval_epoch, run_cmrp_train_epoch
+from experiments.cmrp_uda import split_target_adaptation_indices, save_target_split
 
 
 VARIANT_STAGES = {
@@ -144,6 +147,20 @@ VARIANT_STAGES = {
     "frequency_uda": "frequency_uda",
     "frequency_uda_uniform": "frequency_uda",
     "frequency_uda_permuted": "frequency_uda",
+    # DS-042 cross-modal relation-preserving UDA variants.
+    "cmrp_source_only": "cmrp_uda",
+    "cmrp_uda": "cmrp_uda",
+    "cmrp_joint_uda": "cmrp_uda",
+    "cmrp_mri_specific": "cmrp_uda",
+    "cmrp_table_specific": "cmrp_uda",
+    "cmrp_both_specific": "cmrp_uda",
+    "cmrp_no_source_relation": "cmrp_uda",
+    "cmrp_no_target_relation": "cmrp_uda",
+    "cmrp_no_alignment": "cmrp_uda",
+    "cmrp_no_identity": "cmrp_uda",
+    "cmrp_shuffled_table": "cmrp_uda",
+    "cmrp_missingness_only": "cmrp_uda",
+    "cmrp_table_only": "cmrp_uda",
 }
 
 # Display names: ce_only with class_weighted_ce is weighted CE, not plain CE.
@@ -189,6 +206,19 @@ VARIANT_DISPLAY = {
     "frequency_uda": "frequency_uda",
     "frequency_uda_uniform": "frequency_uda_uniform",
     "frequency_uda_permuted": "frequency_uda_permuted",
+    "cmrp_source_only": "cmrp_source_only",
+    "cmrp_uda": "cmrp_uda",
+    "cmrp_joint_uda": "cmrp_joint_uda",
+    "cmrp_mri_specific": "cmrp_mri_specific",
+    "cmrp_table_specific": "cmrp_table_specific",
+    "cmrp_both_specific": "cmrp_both_specific",
+    "cmrp_no_source_relation": "cmrp_no_source_relation",
+    "cmrp_no_target_relation": "cmrp_no_target_relation",
+    "cmrp_no_alignment": "cmrp_no_alignment",
+    "cmrp_no_identity": "cmrp_no_identity",
+    "cmrp_shuffled_table": "cmrp_shuffled_table",
+    "cmrp_missingness_only": "cmrp_missingness_only",
+    "cmrp_table_only": "cmrp_table_only",
 }
 
 EXTERNAL_FUSION_VARIANTS = frozenset({"film", "daft", "hyperfusion", "concat"})
@@ -224,6 +254,23 @@ FREQUENCY_ENVIRONMENT_VARIANTS = frozenset(
 )
 FREQUENCY_GATE_VARIANTS = frozenset(
     {"frequency_uda", "frequency_uda_uniform", "frequency_uda_permuted"}
+)
+CMRP_VARIANTS = frozenset(
+    {
+        "cmrp_source_only",
+        "cmrp_uda",
+        "cmrp_joint_uda",
+        "cmrp_mri_specific",
+        "cmrp_table_specific",
+        "cmrp_both_specific",
+        "cmrp_no_source_relation",
+        "cmrp_no_target_relation",
+        "cmrp_no_alignment",
+        "cmrp_no_identity",
+        "cmrp_shuffled_table",
+        "cmrp_missingness_only",
+        "cmrp_table_only",
+    }
 )
 DICTIONARY_VARIANTS = frozenset({"dual_dict_linear", "dual_dict_core"})
 DUAL_SHIFT_VARIANTS = frozenset(
@@ -581,6 +628,30 @@ def _make_model(config, num_classes, variant):
         else bool(model_config.get("use_demographics", True))
     )
 
+    if variant in CMRP_VARIANTS:
+        from Model.ablation.cmrp_uda import build_cmrp_uda_model
+
+        cmrp_cfg = config.get("cmrp_uda") or {}
+        input_shape = tuple(
+            int(value)
+            for value in cmrp_cfg.get(
+                "input_shape",
+                config.get("training", {}).get("image_shape", (160, 196, 160)),
+            )
+        )
+        return build_cmrp_uda_model(
+            preset=str(cmrp_cfg.get("preset", "layer4_pixel")),
+            layers=tuple(int(value) for value in cmrp_cfg.get("layers", (1, 1, 1, 1))),
+            input_shape=input_shape,
+            representation_dim=int(cmrp_cfg.get("representation_dim", 128)),
+            table_hidden_dim=int(cmrp_cfg.get("table_hidden_dim", 64)),
+            num_classes=num_classes,
+            dropout=float(cmrp_cfg.get("dropout", 0.1)),
+            max_adapter_strength=float(cmrp_cfg.get("max_adapter_strength", 0.1)),
+            use_image=variant != "cmrp_table_only",
+            use_table=True,
+        )
+
     if variant in DICTIONARY_VARIANTS:
         from Model.dictionary.journal_dual_dict import make_journal_dual_dict
 
@@ -833,6 +904,14 @@ def _make_model(config, num_classes, variant):
 def _logits(model, batch, spatial, variant=None):
     image = batch["image"]
     covariates = batch["covariates"]
+    if variant in CMRP_VARIANTS:
+        return model(
+            image,
+            covariates,
+            age_missing=batch.get("age_missing"),
+            sex_missing=batch.get("sex_missing"),
+            education_missing=batch.get("education_missing"),
+        )
     if variant in SCALE_TABLE_VARIANTS:
         # image_only ignores the table argument; every table-aware ablation
         # receives the same frozen cov3 tensor in the documented order.
@@ -1255,6 +1334,151 @@ def _class_weights_from_labels(labels: np.ndarray, num_classes: int):
     return weights.astype(np.float32)
 
 
+def _train_cmrp_variant(
+    variant,
+    config,
+    train_loader,
+    val_loader,
+    test_loader,
+    target_loader,
+    target_adapt_loader,
+    output_dir,
+    num_classes,
+    device,
+    class_weights=None,
+):
+    """Train and report one DS-042 CMRP variant using source/target batches."""
+    seed_everything(int(config["seed"]))
+    model = _make_model(config, num_classes, variant).to(device)
+    cmrp_cfg = config.get("cmrp_uda") or {}
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=float(cmrp_cfg.get("learning_rate", config["training"]["learning_rate"])),
+        weight_decay=float(cmrp_cfg.get("weight_decay", config["training"]["weight_decay"])),
+    )
+    variant_dir = Path(output_dir) / variant
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = variant_dir / "best_checkpoint.pt"
+    last_checkpoint_path = variant_dir / "last_checkpoint.pt"
+    best_key = None
+    history = []
+    selection_history = []
+    for epoch in range(int(config["training"]["epochs"])):
+        train_result = run_cmrp_train_epoch(
+            model,
+            train_loader,
+            target_adapt_loader if variant != "cmrp_source_only" else None,
+            device,
+            optimizer=optimizer,
+            variant=variant,
+            config=config,
+            class_weights=class_weights,
+        )
+        val_result = run_cmrp_eval_epoch(
+            model,
+            val_loader,
+            device,
+            variant=variant,
+        )
+        key = _selection_key(
+            val_result, config, variant=variant, selection_history=selection_history
+        )
+        selection_history.append(float(val_result["metrics"].get("balanced_accuracy", float("nan"))))
+        history.append({"epoch": epoch + 1, **{f"train_{name}": value for name, value in train_result.items()}, "val_loss": val_result["loss"], "val_auc": val_result["metrics"].get("auc"), "val_balanced_accuracy": val_result["metrics"].get("balanced_accuracy")})
+        print(
+            f"[journal] {variant} epoch {epoch + 1}/{int(config['training']['epochs'])} "
+            f"train_loss={train_result['loss']:.4f} val_loss={val_result['loss']:.4f}",
+            flush=True,
+        )
+        payload = {
+            "epoch": epoch + 1,
+            "variant": variant,
+            "stage": VARIANT_STAGES[variant],
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "selection": {
+                "val_score": key[-1],
+                "val_loss": val_result["loss"],
+                "seed": int(config["seed"]),
+            },
+        }
+        torch.save(payload, last_checkpoint_path)
+        if best_key is None or key > best_key:
+            best_key = key
+            torch.save(payload, checkpoint_path)
+    if not checkpoint_path.exists():
+        raise RuntimeError(f"CMRP variant {variant} did not produce a checkpoint")
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    model.load_state_dict(checkpoint["model_state"], strict=True)
+    results = {
+        "source_val": run_cmrp_eval_epoch(model, val_loader, device, variant=variant),
+        "source_test": run_cmrp_eval_epoch(model, test_loader, device, variant=variant),
+    }
+    if target_loader is not None:
+        results["target"] = run_cmrp_eval_epoch(model, target_loader, device, variant=variant)
+    eval_cfg = config.get("evaluation", {})
+    aggregate = str(eval_cfg.get("aggregate", "subject_mean"))
+    cluster = bool(eval_cfg.get("cluster_by_subject", True))
+    reports = {}
+    for split, result in results.items():
+        probabilities = _save_predictions(variant_dir / f"{split}_predictions.csv", result)
+        scan_metrics = compute_journal_metrics(
+            probabilities,
+            result["labels"],
+            result["environments"],
+            input_type="probabilities",
+            subject_ids=result["subjects"],
+            aggregate="none",
+        )
+        subject_metrics = compute_journal_metrics(
+            probabilities,
+            result["labels"],
+            result["environments"],
+            input_type="probabilities",
+            subject_ids=result["subjects"],
+            aggregate=aggregate,
+            folders=result.get("folders"),
+        )
+        ci = bootstrap_confidence_intervals(
+            probabilities,
+            result["labels"],
+            result["environments"],
+            n_bootstrap=int(eval_cfg.get("bootstrap_samples", 1000)),
+            random_state=int(config["seed"]),
+            input_type="probabilities",
+            subject_ids=result["subjects"],
+            cluster_by_subject=cluster,
+            aggregate=aggregate,
+            folders=result.get("folders"),
+        )
+        reports[split] = {
+            "loss": result["loss"],
+            "metrics_scan": scan_metrics,
+            "metrics": subject_metrics,
+            "bootstrap_ci": ci,
+        }
+    reports.update(
+        {
+            "variant": variant,
+            "variant_display_name": VARIANT_DISPLAY.get(variant, variant),
+            "stage": VARIANT_STAGES[variant],
+            "history": history,
+            "cmrp_uda": model.experiment_signature(),
+            "best_checkpoint_epoch": int(checkpoint["epoch"]),
+            "best_checkpoint_selection": checkpoint.get("selection"),
+            "initialization_seed": int(config["seed"]),
+            "training_seed": int(config["seed"]),
+            "claim_protocol": (config.get("claim") or {}).get("protocol"),
+            "claim_protocol_revision": (config.get("claim") or {}).get("protocol_revision"),
+            "config_hash": _config_fingerprint(config),
+            "input_modalities": ["MRI", "age", "sex", "education"],
+            "target_labels_read_during_adaptation": False,
+        }
+    )
+    save_json_summary(variant_dir / "journal_metrics.json", reports)
+    return reports
+
+
 def _train_variant(
     variant,
     config,
@@ -1267,9 +1491,24 @@ def _train_variant(
     num_groups,
     device,
     class_weights=None,
+    target_adapt_loader=None,
 ):
     # Fair comparison: every variant starts from the same RNG state.
     seed_everything(int(config["seed"]))
+    if variant in CMRP_VARIANTS:
+        return _train_cmrp_variant(
+            variant,
+            config,
+            train_loader,
+            val_loader,
+            test_loader,
+            target_loader,
+            target_adapt_loader,
+            output_dir,
+            num_classes,
+            device,
+            class_weights=class_weights,
+        )
     spatial = variant in JOURNAL_SPATIAL_VARIANTS
     use_dro = variant in {"groupdro", "spatial_groupdro"}
     external = variant in EXTERNAL_FUSION_VARIANTS
@@ -1872,6 +2111,11 @@ def _paired_variant_comparisons(output_dir, variants, config):
             for variant in variants
             if variant in FREQUENCY_UDA_VARIANTS
         ],
+        "cmrp_source_only": [
+            variant
+            for variant in variants
+            if variant in CMRP_VARIANTS
+        ],
     }
     eval_cfg = config.get("evaluation", {})
     comparisons = {}
@@ -2104,6 +2348,11 @@ def run(
         for item in list(variants or config.get("variants") or [])
     ]
     frequency_uda_requested = any(item in FREQUENCY_UDA_VARIANTS for item in requested)
+    cmrp_requested = any(item in CMRP_VARIANTS for item in requested)
+    if cmrp_requested and frequency_uda_requested:
+        raise ValueError("DS-042 CMRP variants cannot be mixed with frequency UDA variants in one run")
+    if cmrp_requested and target is None and any(item != "cmrp_source_only" for item in requested):
+        raise ValueError("DS-042 CMRP variants require an external target dataset")
     if frequency_uda_requested and target is None:
         raise ValueError("frequency UDA requires an external target dataset")
     if frequency_uda_requested:
@@ -2245,6 +2494,16 @@ def run(
             str(split_path),
             direction=direction,
         )
+    cmrp_target_split = None
+    cmrp_target_adapt_indices = np.asarray([], dtype=np.int64)
+    if cmrp_requested and target is not None:
+        cmrp_cfg = config.get("cmrp_uda") or {}
+        cmrp_target_adapt_indices, e1_target_indices, cmrp_target_split = split_target_adaptation_indices(
+            target.subject_ids,
+            e1_target_indices,
+            adaptation_fraction=float(cmrp_cfg.get("adaptation_fraction", 0.5)),
+            seed=int(cmrp_cfg.get("adaptation_seed", config["seed"])),
+        )
     source_used_subjects = (
         set(map(str, source.subject_ids[train_indices].tolist()))
         | set(map(str, source.subject_ids[val_indices].tolist()))
@@ -2267,6 +2526,11 @@ def run(
     val_set = JournalSubset(source, val_indices, preprocessor, val_env)
     test_set = JournalSubset(source, test_indices, preprocessor, test_env)
     target_set = None if target is None else JournalSubset(target, e1_target_indices, preprocessor, target_env)
+    target_adapt_set = (
+        None
+        if not cmrp_requested or target is None
+        else UnlabeledJournalSubset(target, cmrp_target_adapt_indices, preprocessor)
+    )
     batch_size = int(config["training"]["batch_size"])
     if batch_size < 2:
         raise ValueError("training.batch_size must be >= 2 for BatchNorm stability")
@@ -2316,6 +2580,17 @@ def run(
         test_set, batch_size=eval_batch, collate_fn=journal_collate, **common
     )
     target_loader = None if target_set is None else DataLoader(target_set, batch_size=eval_batch, collate_fn=journal_collate, **common)
+    target_adapt_loader = (
+        None
+        if target_adapt_set is None
+        else DataLoader(
+            target_adapt_set,
+            batch_size=eval_batch,
+            shuffle=True,
+            collate_fn=journal_collate,
+            **common,
+        )
+    )
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     manifest = _manifest(
         source,
@@ -2351,6 +2626,9 @@ def run(
     manifest["frozen_split_manifest"] = split_manifest
     manifest["e1_target_subjects"] = sorted(e1_target_subjects)
     manifest["source_only"] = bool(source_only)
+    if cmrp_target_split is not None:
+        manifest["cmrp_uda_target_split"] = cmrp_target_split
+        save_target_split(Path(output_dir) / "cmrp_target_adapt_test_split.json", cmrp_target_split)
     if frequency_target_split is not None:
         split_path = Path(str((config.get("frequency_uda") or {})["target_split_manifest"]))
         manifest["frequency_uda_target_split"] = {
@@ -2449,6 +2727,7 @@ def run(
             len(builder.environment_to_id_),
             resolved_device,
             class_weights=class_weights,
+            target_adapt_loader=target_adapt_loader,
         )
     comparisons = {} if source_only else _paired_variant_comparisons(output_dir, selected, config)
     save_json_summary(Path(output_dir) / "paired_comparisons.json", comparisons)
