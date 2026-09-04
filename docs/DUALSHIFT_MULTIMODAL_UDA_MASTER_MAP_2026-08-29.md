@@ -5,7 +5,7 @@
 主任务：scan-filtered MRI，MCI vs AD  
 主方向：`ADNI_to_NACC`
 
-当前实验登记：**DS-042**，详见 [`DS-042_MULTIMODAL_UDA_EXPERIMENT_PLAN_2026-08-29.md`](DS-042_MULTIMODAL_UDA_EXPERIMENT_PLAN_2026-08-29.md)。
+当前实验登记：**DS-043 已完成**，结果见仓库根目录 [`DS-043_EXPERIMENT_REPORT.md`](../../DS-043_EXPERIMENT_REPORT.md)，计划见 [`DS-043_CAPM_MULTIMODAL_CONCAT_EXPERIMENT_PLAN_2026-09-02.md`](DS-043_CAPM_MULTIMODAL_CONCAT_EXPERIMENT_PLAN_2026-09-02.md)。
 
 CMRP-UDA v0 的模型、label-blind target loader、subject-disjoint adaptation split 和 journal runner 已实现；当前缺口是服务器端正式数据运行与多 seed 证据，而不是另起新的批次效应实验线。
 
@@ -112,6 +112,7 @@ L_id    = bounded identity-preservation penalty
 | image-only UDA | FMM、amplitude/phase transport、GRL、residual、source-free residual | 与多模态方法比较的 MRI UDA 基线 |
 | multimodal UDA | joint alignment、MRI-specific alignment | 普通多模态 UDA 对照 |
 | proposed | CMRP-UDA | 跨模态关系保持的主方法候选 |
+| DS-043 baselines | P0/P0-M、F0–F3、R1–R3 | 已完成的 CAPM 多模态拼接与频域/GRL 对照；结果不替代 CMRP-UDA 主方法 |
 
 DS-034 至 DS-041 的已有方向都可在论文主比较表中保留相应位置。若历史数值与新 protocol 不完全一致，应统一 protocol 后重跑；不能因为进入主表就改写其历史结论。
 

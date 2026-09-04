@@ -1,6 +1,6 @@
 # DS-043 研究计划/副地图：CAPM + 保守多模态拼接
 
-状态：**PROPOSED / PLAN WRITTEN / NO DS-043 RESULTS**
+状态：**COMPLETED / 3 SEEDS / RESULTS REPORTED**
 主问题：在不改变既有 CAPM-GRL 机制的前提下，只有 `age`、`sex`、`education` 时，轻量 table concat 是否值得作为 MRI 分类的辅助输入？
 
 本计划主动收敛实验规模：保留原有 8 个 CAPM-GRL 变体，并只增加一个 `P0-M`。不注册 `F1-M` 至 `R3-M`，不引入 CMRP、CORAL、relation loss、cross-attention 或新的多模态 UDA 矩阵。
@@ -205,7 +205,7 @@ t_t      -> t_tilde_t
 | `make_frequency_batch` | 生成 `x_i` 与 `x_t*` | 已有实现，可复用 |
 | `compute_capm_frequency_losses` | source CE、GRL、attention、anchor 和诊断量 | 已有实现，可复用 |
 | source/target loaders | source label、image-only `T_adapt`、冻结 `T_test` | 已有协议实现 |
-| `P0-M` concat head | `h_M [B,512]` 与 `t_tilde [B,6]` 拼接后线性分类 | **043 proposed，尚未实现** |
+| `P0-M` concat head | `h_M [B,512]` 与 `t_tilde [B,6]` 拼接后线性分类 | **043 completed，已完成 3 seeds** |
 | CMRP relation/CORAL | 本计划不使用 | 明确排除 |
 
 ## 4. 每个模块的具体实现
@@ -248,7 +248,7 @@ use_table_concat=True  -> P0-M 的 [GAP(B4), t_tilde] classifier
 ### 4.3 代码与计划边界
 
 - 8 个 CAPM-GRL 变体来自 DS-040 reference implementation，043 正式运行前需要在当前实验 revision 中确认其源码、配置和 artifact inventory 一致；
-- `P0-M` 当前只是计划项，不能在文档中标成已实现；
+- `P0-M` 已完成 3 个 seed 的正式运行，结果见 DS-043 实验报告；
 - 当前 CMRP 的 independent MRI/table encoder、relation、CORAL 和 bounded adapter 不属于 043；
 - 043 的 batch/scanner 解释仍是辅助假说，domain discriminator loss 或 discrepancy 下降不能单独构成成功标准。
 
@@ -256,21 +256,21 @@ use_table_concat=True  -> P0-M 的 [GAP(B4), t_tilde] classifier
 
 ### 5.1 预注册主比较
 
-主 baseline 为 `P0`。所有结果必须使用同一 `ADNI_to_NACC`、MCI vs AD、subject split、source-validation selector 和 seeds `42,43,44`。以下是运行前的结果表，`NR` 表示尚未运行。
+主 baseline 为 `P0`。所有结果必须使用同一 `ADNI_to_NACC`、MCI vs AD、subject split、source-validation selector 和 seeds `42,43,44`。以下为已完成结果表；数值为 3 个 seed 的均值 ± 标准差，详细 Precision、Specificity 和 MCC 见 DS-043 实验报告及汇总 JSON。
 
 #### Target 结果表（subject-level，ADNI→NACC，seeds=42,43,44）
 
-| 变体 | ACC | AUROC | BA | Macro-F1 | Sensitivity | ΔAUROC vs P0 | 证据状态 |
+| 变体 | ACC | AUROC | BA | Macro-F1/F1 | Sensitivity | ΔAUROC vs P0 | 证据状态 |
 |---|---:|---:|---:|---:|---:|---:|---|
-| `P0` (baseline) | NR | NR | NR | NR | NR | — | proposed / not run |
-| `F0` | NR | NR | NR | NR | NR | NR | proposed / not run |
-| `F1` | NR | NR | NR | NR | NR | NR | proposed / not run |
-| `F2` | NR | NR | NR | NR | NR | NR | proposed / not run |
-| `F3` | NR | NR | NR | NR | NR | NR | proposed / not run |
-| `R1` | NR | NR | NR | NR | NR | NR | proposed / not run |
-| `R2` | NR | NR | NR | NR | NR | NR | proposed / not run |
-| `R3` | NR | NR | NR | NR | NR | NR | proposed / not run |
-| `P0-M` | NR | NR | NR | NR | NR | NR | proposed / not run |
+| `P0` | 0.6644 ± 0.0531 | 0.7027 ± 0.0415 | 0.6097 ± 0.0559 | 0.4344 ± 0.1397 | 0.3651 ± 0.1656 | — | completed / 3 seeds |
+| `P0-M` | 0.6663 ± 0.0396 | 0.7255 ± 0.0278 | 0.5935 ± 0.0309 | 0.3954 ± 0.0707 | 0.2941 ± 0.0720 | +0.0229 | completed / 3 seeds |
+| `F0` | 0.6672 ± 0.0243 | 0.7053 ± 0.0232 | 0.6058 ± 0.0391 | 0.4407 ± 0.1593 | 0.4007 ± 0.2778 | +0.0026 | completed / 3 seeds |
+| `F1` | 0.6920 ± 0.0260 | 0.7288 ± 0.0290 | 0.6574 ± 0.0055 | 0.5597 ± 0.0516 | 0.5315 ± 0.1204 | +0.0261 | completed / 3 seeds |
+| `F2` | 0.6726 ± 0.0541 | 0.7173 ± 0.0509 | 0.6087 ± 0.0383 | 0.4544 ± 0.0843 | 0.3696 ± 0.1024 | +0.0146 | completed / 3 seeds |
+| `F3` | 0.6675 ± 0.0829 | 0.7363 ± 0.0239 | 0.6354 ± 0.0315 | 0.5462 ± 0.0718 | 0.5539 ± 0.2254 | +0.0336 | completed / 3 seeds |
+| `R1` | 0.6703 ± 0.0434 | 0.7192 ± 0.0231 | 0.6085 ± 0.0144 | 0.4565 ± 0.0785 | 0.3810 ± 0.1334 | +0.0166 | completed / 3 seeds |
+| `R2` | 0.6425 ± 0.0371 | 0.7155 ± 0.0247 | 0.6140 ± 0.0246 | 0.4794 ± 0.0981 | 0.4781 ± 0.2443 | +0.0129 | completed / 3 seeds |
+| `R3` | 0.6365 ± 0.0813 | 0.6946 ± 0.0231 | 0.6184 ± 0.0229 | 0.5126 ± 0.0283 | 0.5237 ± 0.1898 | -0.0080 | completed / 3 seeds |
 
 `ΔAUROC` 必须先按 seed 计算再汇总；若最终主终点注册为 BA，则另行报告 `ΔBA`，不能用 AUROC 替代 BA。
 
