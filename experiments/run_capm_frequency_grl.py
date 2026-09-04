@@ -37,6 +37,7 @@ from training.fmm_protocol import FMMDatasetView, split_target_indices, subject_
 
 
 VARIANTS = ("P0", "F0", "F1", "F2", "F3", "R1", "R2", "R3")
+P0M = "P0-M"
 VARIANT_FLAGS = {
     "P0": {"frequency": False, "domain_grl": False, "intensity_grl": False, "grl_mode": "full"},
     "F0": {"frequency": True, "domain_grl": False, "intensity_grl": False, "grl_mode": "full"},
@@ -105,7 +106,7 @@ def _loader(dataset: Dataset, batch_size: int, *, shuffle: bool, drop_last: bool
     return DataLoader(dataset, batch_size=int(batch_size), shuffle=shuffle, num_workers=0, drop_last=effective_drop_last)
 
 
-def _clone_model(flags: Mapping[str, Any], projector: TaskSupportProjector | None, *, input_shape: tuple[int, int, int], layers: tuple[int, int, int, int], grl_coefficient: float) -> CAPMFrequencyGRL3D:
+def _clone_model(flags: Mapping[str, Any], projector: TaskSupportProjector | None, *, input_shape: tuple[int, int, int], layers: tuple[int, int, int, int], grl_coefficient: float, use_table_concat: bool = False) -> CAPMFrequencyGRL3D:
     return CAPMFrequencyGRL3D(
         projector=projector,
         grl_mode=str(flags["grl_mode"]),
@@ -115,6 +116,7 @@ def _clone_model(flags: Mapping[str, Any], projector: TaskSupportProjector | Non
         layers=layers,
         grl_coefficient=grl_coefficient,
         classifier_dropout=0.0,
+        use_table_concat=use_table_concat,
     )
 
 
@@ -124,8 +126,23 @@ def _module_grad_norm(module: nn.Module) -> float:
 
 
 @torch.no_grad()
+def _table_concat(batch: Mapping[str, Any], device: torch.device) -> Tensor:
+    fields = ["covariates", "age_missing", "sex_missing", "education_missing"]
+    table = batch["covariates"].to(device)
+    masks = torch.stack([batch.get(name, torch.zeros(len(table), device=device)).float().to(device) for name in fields[1:]], dim=1)
+    return torch.cat((table, masks), dim=1)
+
+
 def _evaluate(model: CAPMFrequencyGRL3D, loader: DataLoader, device: torch.device) -> dict[str, Any]:
-    from sklearn.metrics import balanced_accuracy_score, roc_auc_score
+    from sklearn.metrics import (
+        balanced_accuracy_score,
+        matthews_corrcoef,
+        precision_score,
+        recall_score,
+        roc_auc_score,
+        confusion_matrix,
+        f1_score,
+    )
 
     was_training = model.training
     model.eval()
@@ -136,7 +153,7 @@ def _evaluate(model: CAPMFrequencyGRL3D, loader: DataLoader, device: torch.devic
         for batch in loader:
             if "label" not in batch or "covariates" not in batch:
                 raise AssertionError("evaluation loader must explicitly expose labels and covariates")
-            logits = model(batch["image"].to(device), batch["covariates"].to(device))
+            logits = model(batch["image"].to(device), batch["covariates"].to(device), table_concat=_table_concat(batch, device) if model.use_table_concat else None)
             probabilities.extend(torch.softmax(logits, dim=1)[:, 1].cpu().tolist())
             labels.extend(batch["label"].long().cpu().tolist())
             subjects.extend(map(str, batch["subject_id"]))
@@ -144,11 +161,19 @@ def _evaluate(model: CAPMFrequencyGRL3D, loader: DataLoader, device: torch.devic
         model.train(was_training)
     predictions = (np.asarray(probabilities) >= 0.5).astype(np.int64)
     target = np.asarray(labels, dtype=np.int64)
+    tn, fp, fn, tp = confusion_matrix(target, predictions, labels=[0, 1]).ravel()
     result: dict[str, Any] = {
         "n_scans": int(len(target)),
         "balanced_accuracy": float(balanced_accuracy_score(target, predictions)),
         "accuracy": float(np.mean(predictions == target)),
         "auc": float(roc_auc_score(target, probabilities)) if len(np.unique(target)) == 2 else None,
+        # Additional binary classification metrics (positive class = AD = 1).
+        "precision": float(precision_score(target, predictions, zero_division=0)),
+        # For binary AD classification, recall is sensitivity.
+        "recall": float(recall_score(target, predictions, zero_division=0)),
+        "specificity": float(tn / (tn + fp)) if (tn + fp) else None,
+        "f1": float(f1_score(target, predictions, zero_division=0)),
+        "mcc": float(matthews_corrcoef(target, predictions)),
     }
     result["predictions"] = [{"subject_id": subject, "label": int(label), "probability": float(probability)} for subject, label, probability in zip(subjects, labels, probabilities)]
     return result
@@ -173,7 +198,7 @@ def _train_source_epoch(model: CAPMFrequencyGRL3D, loader: DataLoader, optimizer
     values: list[float] = []
     for batch in loader:
         image, table, labels = batch["image"].to(device), batch["covariates"].to(device), batch["label"].long().to(device)
-        logits = model(image, table)
+        logits = model(image, table, table_concat=_table_concat(batch, device) if model.use_table_concat else None)
         loss = nn.functional.cross_entropy(logits, labels)
         optimizer.zero_grad(set_to_none=True); loss.backward(); optimizer.step()
         values.append(float(loss.detach().cpu()))
@@ -281,12 +306,19 @@ def run_smoke(args: argparse.Namespace) -> tuple[dict[str, Any], CAPMFrequencyGR
     optimizer = torch.optim.Adam(p0.parameters(), lr=args.learning_rate)
     history = _train_p0_with_source_selection(p0, source_train, source_val, optimizer, device, args.epochs)
     projector = _fit_projector(p0, source_train, device, args.projector_rank)
-    flags = VARIANT_FLAGS[args.variant]
-    model = _clone_model(flags, projector, input_shape=input_shape, layers=layers, grl_coefficient=args.grl_coefficient).to(device)
+    flags = VARIANT_FLAGS.get(args.variant, VARIANT_FLAGS["P0"])
+    model = _clone_model(flags, projector, input_shape=input_shape, layers=layers, grl_coefficient=args.grl_coefficient, use_table_concat=args.variant == P0M).to(device)
     model.load_state_dict(p0.state_dict(), strict=False)
     variant_history = []
     if args.variant == "P0":
         selected = p0
+    elif args.variant == P0M:
+        selected = model
+        with torch.no_grad():
+            selected.table_concat_classifier.weight[:, :512].copy_(p0.classifier.weight)
+            selected.table_concat_classifier.bias.copy_(p0.classifier.bias)
+        optimizer = torch.optim.Adam(selected.parameters(), lr=args.learning_rate)
+        _train_p0_with_source_selection(selected, source_train, source_val, optimizer, device, args.epochs)
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
         variant_history.extend(_train_variant_with_source_selection(model, source_train, source_val, target_adapt, optimizer, device, epochs=args.epochs, seed=args.seed, weights={"domain": 1.0 if flags["domain_grl"] else 0.0, "intensity": 1.0 if flags["intensity_grl"] else 0.0, "attention": 1.0, "anchor": 0.1}))
@@ -341,7 +373,7 @@ def _build_real_loaders(config: dict[str, Any], direction: str, source_split: st
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--variant", choices=VARIANTS, default="R3")
+    parser.add_argument("--variant", choices=VARIANTS + (P0M,), default="R3")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--direction", choices=("ADNI_to_NACC", "NACC_to_ADNI"), default="ADNI_to_NACC")
     parser.add_argument("--source-split", type=Path)
@@ -375,16 +407,24 @@ def main(argv: list[str] | None = None) -> None:
         opt = torch.optim.Adam(p0.parameters(), lr=args.learning_rate)
         p0_history = _train_p0_with_source_selection(p0, train_loader, val_loader, opt, device, args.epochs)
         projector = _fit_projector(p0, train_loader, device, args.projector_rank)
-        flags = VARIANT_FLAGS[args.variant]
+        flags = VARIANT_FLAGS.get(args.variant, VARIANT_FLAGS["P0"])
         selected = p0
         variant_history: list[dict[str, float]] = []
-        if args.variant != "P0":
+        if args.variant == P0M:
+            selected = _clone_model(VARIANT_FLAGS["P0"], None, input_shape=input_shape, layers=layers, grl_coefficient=args.grl_coefficient, use_table_concat=True).to(device)
+            selected.load_state_dict(p0.state_dict(), strict=False)
+            with torch.no_grad():
+                selected.table_concat_classifier.weight[:, :512].copy_(p0.classifier.weight)
+                selected.table_concat_classifier.bias.copy_(p0.classifier.bias)
+            opt = torch.optim.Adam(selected.parameters(), lr=args.learning_rate)
+            p0_history = _train_p0_with_source_selection(selected, train_loader, val_loader, opt, device, args.epochs)
+        elif args.variant != "P0":
             selected = _clone_model(flags, projector, input_shape=input_shape, layers=layers, grl_coefficient=args.grl_coefficient).to(device)
             selected.load_state_dict(p0.state_dict(), strict=False)
             opt = torch.optim.Adam(selected.parameters(), lr=args.learning_rate)
             variant_history = _train_variant_with_source_selection(selected, train_loader, val_loader, target_adapt_loader, opt, device, epochs=args.epochs, seed=args.seed, weights={"domain": float(flags["domain_grl"]), "intensity": float(flags["intensity_grl"]), "attention": 1.0, "anchor": 0.1})
         report = {"schema": "dualshift_ds040_report_v1", "status": "completed_code_path", "variant": args.variant, "direction": args.direction, "seed": args.seed, "p0_history": p0_history, "variant_history": variant_history, "source_val": _evaluate(selected, val_loader, device), "source_test": _evaluate(selected, test_loader, device), "target_test": _evaluate(selected, target_test_loader, device), "target_labels_used_for_adaptation": False, "target_labels_used_for_selection": False, "target_metrics_read_for_final_report": True, "source_subject_digest": subject_digest(inventory["source"].subject_ids[inventory["train_indices"]]), "target_adapt_subject_digest": subject_digest(inventory["target"].subject_ids[inventory["target_adapt_indices"]]), "target_test_subject_digest": subject_digest(inventory["target"].subject_ids[inventory["target_test_indices"]]), "model_signature": selected.experiment_signature(), "projector": projector.to_dict()}
-    report["variant_flags"] = dict(VARIANT_FLAGS[args.variant])
+    report["variant_flags"] = dict(VARIANT_FLAGS.get(args.variant, VARIANT_FLAGS["P0"]))
     report["selection_source_validation_only"] = True
     report["code_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -394,7 +434,7 @@ def main(argv: list[str] | None = None) -> None:
         "schema": "dualshift_ds040_audit_v1",
         "variant": args.variant,
         "seed": int(args.seed),
-        "variant_flags": dict(VARIANT_FLAGS[args.variant]),
+        "variant_flags": dict(VARIANT_FLAGS.get(args.variant, VARIANT_FLAGS["P0"])),
         "target_labels_used_for_adaptation": False,
         "target_labels_used_for_selection": False,
         "target_metrics_read_for_final_report": True,

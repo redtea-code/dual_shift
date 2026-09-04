@@ -8,7 +8,9 @@ This note separates three questions:
 2. Which published assumptions are permitted by the DualShift comparison protocol?
 3. Which ideas are later improvements rather than substitutes for the baseline?
 
-All PDFs were read from D:\1\定方向\2026AD\域适应. Their scores are not compared directly with DualShift outcomes because task definitions, target-data access, labels, preprocessing, and selection rules differ.
+All source PDFs were read from the project literature set. Their scores are
+not compared directly with DualShift outcomes because task definitions,
+target-data access, labels, preprocessing, and selection rules differ.
 
 ## 2. Direct Baseline Family
 

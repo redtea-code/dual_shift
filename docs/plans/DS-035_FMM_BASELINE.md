@@ -14,7 +14,7 @@ This is an independent comparison line for Frequency Mixup Manipulation (FMM), n
 
 > Under the DualShift ADNI 1.5T to NACC 3T data contract, does the published raw-image frequency UDA baseline work, and which components are responsible for any observed change?
 
-Primary source: Shin et al., Frequency Mixup Manipulation Based Unsupervised Domain Adaptation for Brain Disease Identification, ACPR 2023, DOI 10.1007/978-3-031-47665-5_11. Local PDF: D:\1\定方向\2026AD\域适应\978-3-031-47665-5_11.pdf.
+Primary source: Shin et al., Frequency Mixup Manipulation Based Unsupervised Domain Adaptation for Brain Disease Identification, ACPR 2023, DOI 10.1007/978-3-031-47665-5_11. The reviewed PDF is part of the project literature set.
 
 The authors state that code is available at https://github.com/ku-milab/FMM. The public checkout used for source comparison is commit `580625cee5bfc1474fe8700e530ade07ac5e9776`. It is a reference only: the checkout is incomplete for a clean run because the training scripts import files that are absent from the tree. The local implementation records this commit and does not import the repository at runtime.
 
@@ -147,7 +147,7 @@ Before real-data training:
 The implementation smoke path is exercised with:
 
 ~~~
-D:\Anaconda\envs\segment\python.exe experiments/train_fmm_baseline.py --config_path fmm_baseline_scan_filtered_1p5t_mci_ad.yaml --direction ADNI_to_NACC --variant b1_fmm --smoke-test --output-dir outputs/fmm_smoke_b1
+python experiments/train_fmm_baseline.py --config_path fmm_baseline_scan_filtered_1p5t_mci_ad.yaml --direction ADNI_to_NACC --variant b1_fmm --smoke-test --output-dir outputs/fmm_smoke_b1
 ~~~
 
 Each run saves: Git commit, upstream reference commit, configuration hash, subject digests, target-label/metric access flags, seed-derived selector history, branch losses, subject-level predictions, sampled target subject IDs, and raw spectral diagnostics. Report clean source validation, source test, and only the pre-registered exploratory T_test row.

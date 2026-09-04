@@ -166,6 +166,7 @@ class CAPMFrequencyGRL3D(nn.Module):
         input_shape: tuple[int, int, int] = (160, 196, 160),
         classifier_dropout: float = 0.3,
         grl_coefficient: float = 1.0,
+        use_table_concat: bool = False,
     ) -> None:
         super().__init__()
         if grl_mode not in {"full", "residual"}:
@@ -176,6 +177,7 @@ class CAPMFrequencyGRL3D(nn.Module):
         self.domain_grl = bool(domain_grl)
         self.intensity_grl = bool(intensity_grl)
         self.grl_coefficient = float(grl_coefficient)
+        self.use_table_concat = bool(use_table_concat)
         self.backbone = ScaleTableInteractionAblation3D(
             preset="layer4_pixel",
             interaction="original_capm",
@@ -188,6 +190,10 @@ class CAPMFrequencyGRL3D(nn.Module):
         self.spatial_gate = SpatialGate3d()
         self.last_attention: Tensor | None = None
         self.domain_discriminator = nn.Sequential(nn.Linear(512, 64), nn.ReLU(inplace=True), nn.Linear(64, 1))
+        self.table_concat_classifier = nn.Linear(518, num_classes) if self.use_table_concat else None
+        if self.table_concat_classifier is not None:
+            nn.init.zeros_(self.table_concat_classifier.weight)
+            nn.init.zeros_(self.table_concat_classifier.bias)
         self.intensity_discriminator = nn.Sequential(nn.Linear(512, 64), nn.ReLU(inplace=True), nn.Linear(64, 1))
 
     @property
@@ -212,12 +218,17 @@ class CAPMFrequencyGRL3D(nn.Module):
             raise RuntimeError("residual mode has no projector")
         return self.projector.residual(capm_features)
 
-    def logits_from_features(self, features: Tensor) -> Tensor:
-        return self.backbone.fc(self.backbone.dropout(self.backbone.pool(features).flatten(1)))
+    def logits_from_features(self, features: Tensor, table_concat: Tensor | None = None) -> Tensor:
+        pooled = self.backbone.dropout(self.backbone.pool(features).flatten(1))
+        if self.use_table_concat:
+            if table_concat is None or table_concat.ndim != 2 or table_concat.shape[1] != 6:
+                raise ValueError("P0-M requires table_concat with shape [B,6]")
+            return self.table_concat_classifier(torch.cat((pooled, table_concat), dim=1))
+        return self.backbone.fc(pooled)
 
-    def forward(self, image: Tensor, table: Tensor, *, return_features: bool = False) -> Tensor | tuple[Tensor, Tensor]:
+    def forward(self, image: Tensor, table: Tensor, *, table_concat: Tensor | None = None, return_features: bool = False) -> Tensor | tuple[Tensor, Tensor]:
         features = self.capm_features(image, table)
-        logits = self.logits_from_features(features)
+        logits = self.logits_from_features(features, table_concat)
         return (logits, features) if return_features else logits
 
     def domain_logits(self, features: Tensor) -> Tensor:
@@ -240,6 +251,7 @@ class CAPMFrequencyGRL3D(nn.Module):
             "intensity_grl": self.intensity_grl,
             "grl_coefficient": self.grl_coefficient,
             "projector_rank": None if self.projector is None else self.projector.rank,
+            "use_table_concat": self.use_table_concat,
         }
 
 

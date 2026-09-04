@@ -856,11 +856,54 @@ class JournalSubset(Dataset):
         return item
 
 
+class UnlabeledJournalSubset(Dataset):
+    """Subject subset exposing only image/table fields for target adaptation."""
+
+    def __init__(
+        self,
+        dataset: JournalNiftiDataset | JournalManifestDataset,
+        indices: Sequence[int],
+        preprocessor: CovariatePreprocessor,
+    ):
+        self.dataset = dataset
+        self.indices = np.asarray(indices, dtype=np.int64)
+        self.covariates, masks = preprocessor.transform(
+            dataset.raw_age[self.indices],
+            dataset.raw_sex[self.indices],
+            dataset.raw_education[self.indices],
+        )
+        self.age_missing = np.asarray(masks["age_missing"], dtype=np.float32)
+        self.sex_missing = np.asarray(masks["sex_missing"], dtype=np.float32)
+        self.education_missing = np.asarray(
+            masks["education_missing"], dtype=np.float32
+        )
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, index):
+        source_index = int(self.indices[index])
+        record = self.dataset.records[source_index]
+        # Calling _load_image directly avoids materializing the target label.
+        return {
+            "image": self.dataset._load_image(record["path"]),
+            "covariates": torch.from_numpy(self.covariates[index]),
+            "age_missing": torch.tensor(self.age_missing[index], dtype=torch.float32),
+            "sex_missing": torch.tensor(self.sex_missing[index], dtype=torch.float32),
+            "education_missing": torch.tensor(
+                self.education_missing[index], dtype=torch.float32
+            ),
+            "subject_id": record["subject_id"],
+            "folder": record["folder"],
+        }
+
+
 __all__ = [
     "CovariatePreprocessor",
     "JournalManifestDataset",
     "JournalNiftiDataset",
     "JournalSubset",
+    "UnlabeledJournalSubset",
     "build_journal_dataset",
     "parse_journal_folder",
 ]

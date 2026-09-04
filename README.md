@@ -17,6 +17,13 @@ Every new experiment gets an ID and one plan plus one result record:
 Do not call an experiment complete without a result record. Smoke tests are
 implementation evidence, not performance results.
 
+## Experiment branch policy
+
+Plans, reports, maps, and other research text are maintained on `main`.
+New `exp/<id>-<short-name>` branches should contain only the model and any
+necessary training-code changes. See
+[`docs/EXPERIMENT_BRANCH_POLICY.md`](docs/EXPERIMENT_BRANCH_POLICY.md).
+
 ## Active entry points
 
 - `docs/plans/DS-034.md`
@@ -39,7 +46,7 @@ Run the five registered controls by changing `--variant` among `b0_ref`,
 using the scan-filtered data, validate the complete path with:
 
 ```powershell
-D:\Anaconda\envs\segment\python.exe experiments/train_fmm_baseline.py `
+python experiments/train_fmm_baseline.py `
   --config_path fmm_baseline_scan_filtered_1p5t_mci_ad.yaml `
   --direction ADNI_to_NACC --variant b1_fmm --smoke-test `
   --output-dir outputs/fmm_smoke_b1

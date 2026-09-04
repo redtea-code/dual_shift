@@ -3,6 +3,10 @@
 This is the single status list for active experiments. Each row must link to
 one plan and, once work is complete, one result record.
 
+Branch and publication rules are recorded in
+[EXPERIMENT_BRANCH_POLICY.md](EXPERIMENT_BRANCH_POLICY.md). Plans and results
+belong on `main`; new experiment branches are implementation-only by default.
+
 | ID | Experiment | Owner | Status | Plan | Result | Last updated |
 |---|---|---|---|---|---|---|
 | DS-034 | Scan-filtered CAPM / IE-CAPM / APIC v3_2 | cyh | RUNNING | [plan](plans/DS-034.md) | [results](results/DS-034/README.md) | 2026-08-19 |
@@ -12,6 +16,9 @@ one plan and, once work is complete, one result record.
 | DS-038 | Domain/intensity GRL factorial audit | cyh | BLOCKED | [plan](plans/DS-038_GRL_FACTORIAL_MECHANISM.md) | [results](results/DS-038/README.md) | 2026-08-19 |
 | DS-039 | CAPM-conditioned residual adaptation pilot | cyh | RUNNING | [plan](plans/DS-039_CAPM_CONDITIONED_RESIDUAL_ADAPTATION.md) | [results](results/DS-039/README.md) | 2026-08-25 |
 | DS-040 | CAPM-conditioned frequency UDA with domain/intensity GRL | cyh | PROPOSED | [plan](plans/DS-040_CAPM_CONDITIONED_FREQUENCY_GRL.md) | [results](results/DS-040/README.md) | 2026-08-27 |
+| DS-041 | CAPM-conditioned source-free residual distribution alignment | cyh | COMPLETED / EXPLORATORY | [plan](plans/DS-041_CAPM_CONDITIONED_SOURCE_FREE_RESIDUAL_ALIGNMENT.md) | [results](results/DS-041/README.md) | 2026-08-28 |
+| DS-042 | MRI+table cross-modal relation-preserving UDA | cyh | COMPLETED / INCONCLUSIVE | [plan](DS-042_MULTIMODAL_UDA_EXPERIMENT_PLAN_2026-08-29.md) | [results](results/DS-042/README.md) | 2026-09-01 |
+| DS-043 | CAPM-GRL multimodal concat and frequency/residual baselines | cyh | COMPLETED / DESCRIPTIVE | [plan](DS-043_CAPM_MULTIMODAL_CONCAT_EXPERIMENT_PLAN_2026-09-02.md) | [results](results/DS-043/README.md) | 2026-09-04 |
 
 ## Status values
 
