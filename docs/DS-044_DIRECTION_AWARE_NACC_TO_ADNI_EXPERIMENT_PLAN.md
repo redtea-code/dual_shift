@@ -5,7 +5,7 @@
 > 主要方向：NACC → ADNI  1.5T 目标域压力测试
 > 对照方向：ADNI → NACC  暂不扩展，仅保留为未来方向
 > 任务：scan-filtered MCI vs AD 二分类
-> 状态：D0–D3 COMPLETE / NEXT MECHANISM PLAN REGISTERED
+> 状态：D0–D3、B0–B2、C1–C2、D1–D3、E1–E3 COMPLETE / C CORRECTION PENDING
 > 前置实验：DS-043 CAPM-GRL 多模态拼接与频域/残差对抗基线
 
 ## 1. 研究背景与问题
@@ -24,6 +24,8 @@ DS-043 显示，当前 CAPM-GRL 方法在 ADNI→NACC 方向上具有一定收�
 ## 2. 研究假设
 
 > **DS-044 第一轮结果更新（2026-09-08）**：D0–D3 已完成 15/15 个运行，但未满足预注册的联合成功标准。D0–D3 保留为已完成的历史机制检验；以下新增假设构成后续唯一主线。ADNI→NACC 暂不扩展。
+
+> **服务器维护前进展（根据 `044.txt`，2026-09-14 整理）**：冻结同一 P0 后，B0–B2、C1–C2、D1–D3 和 E1–E3 诊断均已完成。C 假说获支持；B、D、E 未获支持。后续不再新增 B/D/E 适配模块，只保留 C 的 cluster-conditioned selective correction，并等待其 correction gain 验证。
 
 ### H5：Prior/calibration/conditional-shift 假设
 
@@ -430,16 +432,19 @@ target AUROC 或 BA 改善
 已完成：Phase B–D: P0 -> D0 -> D1 -> D2 -> D3
     |
     v
-下一阶段：P0-Prior -> P0-Cal -> P0-CShift（仅 NACC→ADNI，逐步闸门）
+已完成：B0/B1/B2 -> C1/C2 -> D1/D2/D3 -> E1/E2/E3
     |
     v
-停止条件：三类校正均失败后停止新增适配模块；ADNI→NACC 延后
+当前唯一后续：cluster-conditioned selective correction（仅 NACC→ADNI）
+    |
+    v
+停止条件：若 correction gain 未达到预注册标准，停止新增适配模块；ADNI→NACC 延后
 ```
 
 当前后续只运行：
 
 ```text
-NACC→ADNI: P0-Prior -> P0-Cal -> P0-CShift
+NACC→ADNI: cluster-conditioned selective correction
 ADNI→NACC: deferred
 ```
 
@@ -476,6 +481,57 @@ ADNI→NACC: deferred
 - 汇总：`outputs/DS-044_SUMMARY_METRICS.json`；
 - 报告：`DS-044_EXPERIMENT_REPORT.md`。
 
-本文件已于 2026-09-08 更新：D0–D3 结果已生成并归档；后续只注册 NACC→ADNI 的 P0-Prior、P0-Cal、P0-CShift 主线。ADNI→NACC 暂不扩展。
+本文件已于 2026-09-14 根据服务器维护前记录更新：D0–D3、B0–B2、C1–C2、D1–D3 和 E1–E3 的诊断结果已归档；后续只保留 NACC→ADNI 的 cluster-conditioned selective correction。ADNI→NACC 暂不扩展。
 
-新主线的成功标准：至少 2/3 seeds 的 target BA、F1、MCC 同方向改善，AUROC 不下降，source validation 不下降，且不使用 target-test label。若 P0-Prior、P0-Cal、P0-CShift 均失败，则停止新增适配模块，并将该方向判定为当前 label-blind 框架下不可稳定修正。
+新主线的成功标准：至少 2/3 seeds 的 target BA、F1、MCC 同方向改善，AUROC 不下降，source validation 不下降，且不使用 target-test label。若 cluster-conditioned selective correction 未达到该标准，则停止新增适配模块，并将该方向判定为当前 label-blind 框架下不可稳定修正。
+
+## 16. 服务器维护前结果更新（2026-09-14）
+
+以下内容来自未能及时推送的 `044.txt` 对话记录。所有诊断均以冻结的同一个 P0 checkpoint 为基础，正式 seeds 为 42、43、44；target-test label 和 target metric 未读取。
+
+### B：Support shift
+
+- B0/B1/B2 已完成，CPU fallback 预检、CUDA 兼容性检查和正式输出均已确认。
+- B/C 相关测试：`10 passed`（包含前置 B0/B1 的 `7 passed`）。
+- B 假说最终未获支持，因此不注册 `support-aware selective prediction` 模块。
+
+### C：Target mixture shift
+
+- C1/C2 已完成并归档；三个 seed 均选择 `K=2`。
+- bootstrap mean ARI：seed 42 为 `0.792`，seed 43 为 `0.773`，seed 44 为 `0.736`。
+- 聚类稳定性为 `3/3`，cluster 间 entropy 异质性达到阈值的 seed 为 `2/3`。
+- C 假说按预注册标准获支持，但 cluster 不解释为生物学亚型，也不引入 mixture-of-experts。
+- 后续仅注册 `cluster-conditioned selective correction`。
+
+### D：Covariate-conditioned task shift
+
+- D1/D2/D3 三个 seed 均完成，四种 table condition 均执行：真实 target table、source median/mode、zero table、subject permutation。
+- age Wasserstein distance：`0.256–0.498`；domain-classifier AUC：`0.582–0.651`；missing-rate difference：`0`。
+- target effect 超过 source p95 的比例为 `0.5%–3.6%`，低于预注册 `25%` 支持阈值，支持 seed 为 `0/3`。
+- D 假说未获支持，不注册 covariate-conditioned calibration/reweighting；table effect 和轻度 covariate separation 仅保留为诊断记录。
+
+### E：Optimization / measurement variance
+
+- E1 aggregation：scan→subject mean absolute difference 为 `0.050–0.082`，decision disagreement 为 `3.6%–7.4%`，低于预注册 `0.1` 阈值。
+- E2 checkpoint：source-validation 最优 epoch 为 `20/25/36`，epoch range 为 `16`，source-val BA range 约 `0.058`；存在波动但不足以判定为主导原因。
+- E3 pseudo-domain control：source train→validation feature mean shift 为 `0.041–0.066`，max shift 为 `0.128–0.149`；仅作 source-only 控制记录。
+- E supported seeds 为 `0/3`，E 假说未获支持。
+- 已修正 E2 统计口径：先在每个 seed 内选择 source-validation 最优 checkpoint，再跨 42/43/44 汇总，不能把单个 seed 的训练 epoch 当作 seed 数。
+
+### 结果文件与实现记录
+
+对话记录报告已生成但尚未恢复到当前 Git 历史的文件包括：
+
+- `experiments/ds044_c_mixture.py`
+- `experiments/run_ds044_c_mixture.py`
+- `tests/test_ds044_c_mixture.py`
+- `experiments/ds044_e_variance.py`
+- `experiments/run_ds044_e_variance.py`
+- `tests/test_ds044_e_variance.py`
+- `outputs/ds044_followup/NACC_to_ADNI/C1_C2/summary.json`
+- `outputs/ds044_followup/NACC_to_ADNI/D1_D2_D3/summary.json`
+- `outputs/ds044_followup/NACC_to_ADNI/E1_E2_E3/summary.json`
+
+服务器恢复后，应先从可验证的源文件或输出归档恢复这些文件，再提交到 `models/experiment-variants` 和 `docs/experiment-records`，不可仅凭本节文字重建结果文件。
+
+验证记录：BCDE 相关测试最终为 `19 passed`，lint 无错误，`git diff --check` 通过；运行约束为 `num_workers=0`、PyTorch threads/inter-op threads 为 `8`、BLAS 环境变量为 `8`。由于 PyTorch 不支持 RTX 5090 `sm_120`，D 阶段按运行器规则使用 CPU fallback，并已记录。

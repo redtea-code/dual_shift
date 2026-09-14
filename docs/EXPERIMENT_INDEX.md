@@ -19,6 +19,7 @@ belong on `main`; new experiment branches are implementation-only by default.
 | DS-041 | CAPM-conditioned source-free residual distribution alignment | cyh | COMPLETED / EXPLORATORY | [plan](plans/DS-041_CAPM_CONDITIONED_SOURCE_FREE_RESIDUAL_ALIGNMENT.md) | [results](results/DS-041/README.md) | 2026-08-28 |
 | DS-042 | MRI+table cross-modal relation-preserving UDA | cyh | COMPLETED / INCONCLUSIVE | [plan](DS-042_MULTIMODAL_UDA_EXPERIMENT_PLAN_2026-08-29.md) | [results](results/DS-042/README.md) | 2026-09-01 |
 | DS-043 | CAPM-GRL multimodal concat and frequency/residual baselines | cyh | COMPLETED / DESCRIPTIVE | [plan](DS-043_CAPM_MULTIMODAL_CONCAT_EXPERIMENT_PLAN_2026-09-02.md) | [results](results/DS-043/README.md) | 2026-09-04 |
+| DS-044 | Direction-aware NACC→ADNI degradation, support, mixture, and variance diagnostics | cyh | DIAGNOSTICS COMPLETE / CORRECTION PENDING | [plan](DS-044_DIRECTION_AWARE_NACC_TO_ADNI_EXPERIMENT_PLAN.md) | pending | 2026-09-14 |
 
 ## Status values
 
