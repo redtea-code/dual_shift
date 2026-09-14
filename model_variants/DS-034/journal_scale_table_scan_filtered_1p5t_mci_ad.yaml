@@ -1,0 +1,55 @@
+# Plan 34 structural-ablation template. This file is distinct from the APIC
+# screening YAML: each run uses one preset and the six registered interactions.
+preprocessing_version: skullstrip+n4+mni+crop+normalize
+seed: 42
+split_seed: 42
+output_root: outputs/journal/scan_filtered_scale_table_mci_ad
+claim:
+  protocol: scan_filtered_1p5t_mci_ad
+  protocol_revision: 1
+  primary_metric: balanced_accuracy
+  split_seed: 42
+  exclude_before_split: true
+  task_pair: MCI_vs_AD
+scan_filtered_protocol:
+  enabled: true
+  version: scan_filtered_v1_2026-08-08
+  root: ./scan_manifests_filtered
+  files: {ADNI: ADNI_1p5T_scan_filtered_manifest.csv, NACC: NACC_3T_scan_filtered_manifest.csv}
+  expose_acquisition: false
+task: {mode: binary, label_mapping: {2: 0, 3: 1}, class_names: {0: MCI, 1: AD}, positive_class: AD}
+metadata_match: {max_days: 90, require_diagnosis_match: true, on_diagnosis_mismatch: exclude}
+cohorts:
+  ADNI:
+    image_root: ./datasets/ADNI
+    metadata_csv: ./metadata/ADNI.csv
+    image_filename: MRI_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping: {1: male, 2: female, M: male, F: female}
+    columns: {id: [PTID, RID, subject_id], date: [EXAMDATE, VISDATE, date], sex: [PTGENDER, SEX, sex, gender], age: [AGE, age, AGE_YEARS], education: [PTEDUCAT, EDUCATION, education, EDU, EDUC], diagnosis: [DIAGNOSIS, DX, label]}
+  NACC:
+    image_root: ./datasets/NACC
+    metadata_csv: ./metadata/NACC.csv
+    image_filename: MRI_N4_brain_mni152_cropped_norm.nii.gz
+    intensity_normalization: none
+    sex_mapping: {1: male, 2: female, M: male, F: female}
+    columns: {id: [NACCID, PTID, subject_id], date: [date, EXAMDATE, VISDATE], sex: [SEX, sex, PTGENDER, gender], age: [AGE, age, AGE_YEARS], education: [EDUCATION, education, EDUC, EDU, EDUCATION_YEARS], diagnosis: [label, DIAGNOSIS, DX]}
+training: {epochs: 50, batch_size: 4, eval_batch_size: 2, num_workers: 0, train_ratio: 0.6, val_ratio: 0.2, test_ratio: 0.2, learning_rate: 0.0001, weight_decay: 0.0001, class_weighted_ce: true}
+model: {name: scale_table_ablation}
+scale_table_ablation:
+  # E2 creates one resolved YAML for each of: layer3_patch2, layer4_pixel, layer5_pixel.
+  preset: layer4_pixel
+  input_shape: [160, 196, 160]
+  layers: [2, 2, 2, 2]
+  spatial_shape: [4, 4, 4]
+  transformer_dim: 128
+  num_heads: 4
+  transformer_dropout: 0.1
+  classifier_dropout: 0.3
+  gate_init: 0.95
+environments: {mode: age_sex, n_age_bins: 3, n_education_bins: 3, min_group_size: 8, min_per_class: 2, scale_continuous: true}
+loss: {lambda_tv: 0.01, lambda_sparse: 0.001}
+dual_shift: {collapse_guard: {enabled: true, min_sensitivity: 0.15, min_specificity: 0.15, min_class_recall: 0.15}, subject_balanced_sampler: true}
+variants: [image_only, capm, conv_gate, original_capm, transformer_self, transformer_cross]
+evaluation: {bootstrap_samples: 200, aggregate: subject_mean, cluster_by_subject: true, label_conflict: earliest_visit}
+study: {directions: [ADNI_to_NACC, NACC_to_ADNI], seeds: [42, 43]}
