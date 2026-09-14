@@ -21,7 +21,15 @@ The unresolved remote branches are kept available for later review. Merge their 
 
 Before any merge, compare the branch against `main`, resolve code conflicts by experiment scope, run the relevant tests, and record the source commit in that folder's `README.md`.
 
+## Resolution status
+
+| Experiment | Branch handling |
+|---|---|
+| DS-041 | Superseded by consolidated `main`; retained the current exports and recorded the older conflict. |
+| DS-042 | Consolidated implementation retained; full `codex/ds042-cmrp-uda` source snapshot isolated under DS-042. |
+| DS-043 | Planning branch handled as documentation; run-branch model files isolated under DS-043. |
+| DS-044 | No finalized model implementation yet; run-branch context staged under DS-044. |
+
 ## Branch relationship
 
 This branch starts from the consolidated `main` commit `606b246`. It is intended as a code-variant archive and integration staging area; documentation remains organized on `docs/experiment-records`.
-
