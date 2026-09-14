@@ -534,4 +534,21 @@ ADNI→NACC: deferred
 
 服务器恢复后，应先从可验证的源文件或输出归档恢复这些文件，再提交到 `models/experiment-variants` 和 `docs/experiment-records`，不可仅凭本节文字重建结果文件。
 
+## 17. C1/C2 复现状态（2026-09-14）
+
+为复现 C 假说，已在 `models/experiment-variants` 的
+`model_variants/DS-044/c_mixture/` 中恢复独立运行器和测试。运行器的输入是
+冻结 P0 的显式 NPZ 交接文件，包含 source-train embedding、target
+embedding、subject ID 以及可选的无标签预测概率。它会按 subject 聚合 scan，
+只在 source-train embedding 上拟合 PCA，在预注册 `K=2,3,4` 中计算聚类、
+bootstrap ARI、cluster 大小、support distance、entropy 和预测分布差异。
+
+当前本地没有服务器维护前的三个 P0 checkpoint、embedding/probability
+数组或 C1/C2 `summary.json`，因此尚未运行真实数据复现，也不把 `044.txt`
+中的历史汇总数字当作本次复现结果。恢复这些资产后，对 seeds `42、43、44`
+分别运行，并将原始输入哈希、选定 `K`、ARI 分布和 cluster-level diagnostics
+写入 `outputs/ds044_followup/NACC_to_ADNI/C1_C2/`。
+
+复现器测试：`3 passed`（合成数据和 CLI 往返）；测试未读取任何 target label。
+
 验证记录：BCDE 相关测试最终为 `19 passed`，lint 无错误，`git diff --check` 通过；运行约束为 `num_workers=0`、PyTorch threads/inter-op threads 为 `8`、BLAS 环境变量为 `8`。由于 PyTorch 不支持 RTX 5090 `sm_120`，D 阶段按运行器规则使用 CPU fallback，并已记录。
